@@ -1,3 +1,8 @@
 {
-    "makefile.configureOnOpen": true
+    "makefile.configureOnOpen": true,
+    "files.associations": {
+        "master.h": "c",
+        "config.h": "c",
+        "stdio.h": "c"
+    }
 }

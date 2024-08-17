@@ -14,8 +14,8 @@ INCDIR=src/h
 # File di output
 TARGET=main
 
-# File sorgenti
-SRCS=$(SRCDIR)/master.c
+# File sorgenti (aggiungi qui i nuovi file sorgenti)
+SRCS=$(SRCDIR)/master.c $(SRCDIR)/config.c $(SRCDIR)/ini.c
 
 # File oggetto (nella directory degli oggetti)
 OBJS=$(SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)

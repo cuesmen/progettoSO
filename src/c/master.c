@@ -1,5 +1,9 @@
-#include <stdio.h>
+#include "master.h"
+#include "config.h"
+
+Config conf;
 
 int main(){
-    printf("Suca\n");
+    loadConfig(&conf);
+    printConfig(&conf);
 }
