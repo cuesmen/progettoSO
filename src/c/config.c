@@ -1,5 +1,4 @@
 #include "config.h"
-#include "ini.h"
 
 // Definizione della variabile globale
 Config globalConfig;
