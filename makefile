@@ -1,42 +1,70 @@
 # Compilatore
 CC=gcc
-
-# Flag del compilatore
 CFLAGS=-Wall -Wvla -Wextra -Werror
 
 # Directory degli oggetti
 OBJDIR=objects
 
 # Directory dei file sorgenti e header
-SRCDIR=src/c
-INCDIR=src/h
+MODULEDIR=src/modules
+INCDIR=$(MODULEDIR)/include
 LIBDIR=libs
 
 # File di output
-TARGET=main
+TARGET_MASTER=master
+TARGET_CONFIG=config
+TARGET_ATOMO=atomo
 
-# Trova tutti i file sorgenti nelle directory specificate
-SRCS=$(wildcard $(SRCDIR)/*.c) $(wildcard $(LIBDIR)/*.c)
+# File sorgenti
+SRCS_MASTER=$(MODULEDIR)/master/master.c $(LIBDIR)/ini.c $(MODULEDIR)/semaphore_utils.c
+SRCS_CONFIG=$(MODULEDIR)/config/config.c $(LIBDIR)/ini.c
+SRCS_ATOMO=$(MODULEDIR)/atomo/atomo.c $(MODULEDIR)/semaphore_utils.c
 
-# Genera la lista dei file oggetto corrispondenti
-OBJS=$(patsubst %.c,$(OBJDIR)/%.o,$(notdir $(SRCS)))
+# File oggetto
+OBJS_MASTER=$(patsubst %.c,$(OBJDIR)/%.o,$(notdir $(SRCS_MASTER)))
+OBJS_CONFIG=$(patsubst %.c,$(OBJDIR)/%.o,$(notdir $(SRCS_CONFIG)))
+OBJS_ATOMO=$(patsubst %.c,$(OBJDIR)/%.o,$(notdir $(SRCS_ATOMO)))
 
 # Target principale
-$(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) -o $(TARGET) $(OBJS)
+all: $(TARGET_MASTER) $(TARGET_CONFIG) $(TARGET_ATOMO)
 
-# Regola per creare la directory degli oggetti
-$(OBJDIR):
+# Compilazione del master
+$(TARGET_MASTER): $(OBJS_MASTER)
+	$(CC) $(CFLAGS) -o $(TARGET_MASTER) $(OBJS_MASTER)
+
+# Compilazione del config
+$(TARGET_CONFIG): $(OBJS_CONFIG)
+	$(CC) $(CFLAGS) -o $(TARGET_CONFIG) $(OBJS_CONFIG)
+
+# Compilazione di atomo
+$(TARGET_ATOMO): $(OBJS_ATOMO)
+	$(CC) $(CFLAGS) -o $(TARGET_ATOMO) $(OBJS_ATOMO)
+
+# Regola generale per compilare qualsiasi file .c in un file .o
+$(OBJDIR)/%.o: $(MODULEDIR)/master/%.c
 	mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -I$(INCDIR) -I$(MODULEDIR)/atomo -c $< -o $@
 
-# Regola generale per compilare qualsiasi file .c in un file .o da SRCDIR
-$(OBJDIR)/%.o: $(SRCDIR)/%.c | $(OBJDIR)
-	$(CC) $(CFLAGS) -I$(INCDIR) -c $< -o $@
+$(OBJDIR)/%.o: $(MODULEDIR)/atomo/%.c
+	mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -I$(INCDIR) -I$(MODULEDIR)/atomo -c $< -o $@
 
-# Regola generale per compilare qualsiasi file .c in un file .o da LIBDIR
-$(OBJDIR)/%.o: $(LIBDIR)/%.c | $(OBJDIR)
-	$(CC) $(CFLAGS) -I$(INCDIR) -c $< -o $@
+$(OBJDIR)/%.o: $(MODULEDIR)/config/%.c
+	mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -I$(INCDIR) -I$(MODULEDIR)/atomo -c $< -o $@
 
-# Pulire i file generati
+$(OBJDIR)/%.o: $(LIBDIR)/%.c
+	mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -I$(INCDIR) -I$(MODULEDIR)/atomo -c $< -o $@
+
+# Aggiungi una regola per compilare semaphore_utils.c
+$(OBJDIR)/%.o: $(MODULEDIR)/%.c
+	mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -I$(INCDIR) -I$(MODULEDIR)/atomo -c $< -o $@
+
+# Pulizia dei file generati
 clean:
-	rm -rf $(OBJDIR) $(TARGET)
+	rm -rf $(OBJDIR) $(TARGET_MASTER) $(TARGET_CONFIG) $(TARGET_ATOMO)
+
+run: all
+	./$(TARGET_MASTER)

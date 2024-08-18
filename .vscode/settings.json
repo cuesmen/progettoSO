@@ -4,6 +4,16 @@
         "master.h": "c",
         "config.h": "c",
         "stdio.h": "c",
-        "stdlib.h": "c"
+        "stdlib.h": "c",
+        "types.h": "c",
+        "atomo.h": "c",
+        "unistd.h": "c",
+        "time.h": "c",
+        "wait.h": "c",
+        "fcntl.h": "c",
+        "string.h": "c",
+        "sem.h": "c",
+        "mman.h": "c",
+        "semaphore_utils.h": "c"
     }
 }
