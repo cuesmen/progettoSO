@@ -3,6 +3,7 @@
 static int num;
 static SharedMemory *shared_memory;
 int debugMode = 0;
+float atomSleep = 0;
 
 void printDebug(const char *format, ...)
 {
@@ -62,30 +63,59 @@ int map_atomo_shared_memory(const char *shm_name)
     return 0;
 }
 
-void split_and_create_new_atomo(const char *shm_name) {
+
+int getMax(int n1, int n2) {
+    return (n1 > n2) ? n1 : n2;
+}
+
+void freeEnergy(int n1, int n2, int sem_id){
+
+    //energy(n1, n2) = n1n2 − max(n1, n2)
+
+    int toFree = 0;
+
+    if(n1 == 1 || n2 == 1){
+        return;
+    }
+
+    if(n1 == n2){
+        toFree = (n1*n2)-n1;
+    }
+    else{
+        int mulBuf = n1 * n2;
+        int max = getMax(n1,n2);
+        toFree= mulBuf - max;
+    }
+    semaphore_p(sem_id);
+        *(shared_memory->shared_free_energy) += toFree;
+    semaphore_v(sem_id);
+
+}
+
+
+void split_and_create_new_atomo(const char *shm_name, int sem_id) {
    if (num > 1){
+        srand(time(NULL) ^ (getpid()<<16));
+        int child_num = (rand() % (num - 1)) + 1;
+
         pid_t atomo_pid = fork();
 
         if (atomo_pid == 0) {  // Processo figlio
-            int child_num = num / 2;
             num = child_num;  
-            //printf("Ciao, sono un nuovo atomo, num = %d\n", num);
-            
-            // Prepara i parametri per execve
+
             char num_str[12];
             snprintf(num_str, sizeof(num_str), "%d", num);
             const char *const argv[] = {"./atomo", shm_name, num_str, NULL};
             
-            // Esegui il nuovo programma atomo
             execve("./atomo", (char *const *)argv, NULL);
-            
-            // Se execve fallisce, stampa un errore e termina il processo
             perror("execve");
             exit(1);
         } else if (atomo_pid > 0) {  // Processo padre
-            num = num - num / 2; 
+            num = num - child_num; 
             printDebug("Ciao, sono il padre dopo la scissione, num = %d\n", num);
-            wait(NULL);
+
+            freeEnergy(num,child_num,sem_id);
+
         } else {
             perror("fork");
         }
@@ -137,13 +167,16 @@ int main(int argc, char *argv[])
 
     *(shared_memory->total_atoms_counter) += 1;
     *(shared_memory->total_atoms) += 1;
-    *(shared_memory->shared_free_energy) += num;
     debugMode = shared_memory->shared_config->debug;
+    atomSleep = shared_memory->shared_config->atom_sleep;
     semaphore_v(sem_id);
     
     printDebug("Ciao, sono un atomo, num = %d\n", num);
-    sleep(0.5);
-    split_and_create_new_atomo(shm_name);  // Se necessario
+    sleep(atomSleep);
+
+    /**********/
+    split_and_create_new_atomo(shm_name, sem_id);  
+    /**********/
     
     semaphore_p(sem_id);
     *(shared_memory->total_atoms_counter) -= 1;

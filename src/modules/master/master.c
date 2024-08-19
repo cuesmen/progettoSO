@@ -214,12 +214,26 @@ int main()
         }
     }
 
-    
-    int status;
-    while (wait(&status) > 0){
-        //printf("Energia liberata:")
-        sleep(0.5);
+    sleep(1);
+    while(1){
+        semaphore_p(sem_id);
+        int current_atoms = *(shared_memory.total_atoms_counter);
+        semaphore_v(sem_id);
+         if(current_atoms <= 0)
+            break;
+        else{
+            printf("Atomi in atto: %d\n",current_atoms);
+            fflush(stdout);
+            sleep(1);
+        }
     }
+    
+    /*int status;
+    while (wait(&status) > 0){
+        printf("%d\n",*(shared_memory.total_atoms_counter));
+        fflush(stdout);
+        sleep(0.5);
+    }*/
 
 
     printf("\nTOTALE DI ATOMI CREATI: %d\n", *(int*) shared_memory.total_atoms);

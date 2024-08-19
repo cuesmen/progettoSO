@@ -11,6 +11,7 @@ typedef struct {
     int n_atomi_init;  // Variabile che corrisponde a N_ATOMI_INIT nella sezione [GENERAL]
     int n_atom_max;
     int debug;
+    float atom_sleep;
 } Config;
 
 Config *globalConfig;

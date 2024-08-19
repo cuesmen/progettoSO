@@ -15,8 +15,10 @@
 #include "../semaphore_utils.h"
 
 int map_atomo_shared_memory(const char *shm_name);
-void split_and_create_new_atomo();
+void split_and_create_new_atomo(const char *shm_name, int sem_id);
 int get_semaphore_id(const char *shm_name);
 void printDebug(const char *format, ...);
+void freeEnergy(int n1, int n2, int sem_id);
+int getMax(int n1, int n2);
 
 #endif // ATOMO_H
