@@ -21,11 +21,16 @@ static int handler(void* user, const char* section, const char* name, const char
             pconfig->n_atom_max = atoi(value);
         }
     }
+    if (strcmp(section, "ATTIVATORE") == 0) {
+        if (strcmp(name, "STEP_ATTIVATORE") == 0) {
+            pconfig->step_attivatore = atoi(value);
+        }
+    }
     if (strcmp(section, "GENERAL") == 0) {
         if (strcmp(name, "debug") == 0) {
             pconfig->debug = atoi(value);
         }
-         if (strcmp(name, "atom_sleep") == 0) {
+        if (strcmp(name, "atom_sleep") == 0) {
             pconfig->atom_sleep = atof(value);
         }
     }
@@ -48,6 +53,7 @@ void printConfig() {
     printf("Numero atom max: %d\n", globalConfig->n_atom_max);
     printf("Debug mode?: %d\n", globalConfig->debug);
     printf("Atom sleep: %.1f\n", globalConfig->atom_sleep);
+    printf("Step attivatore: %d\n", globalConfig->step_attivatore);
     fflush(stdout);
 }
 

@@ -12,6 +12,7 @@ typedef struct {
     int n_atom_max;
     int debug;
     float atom_sleep;
+    int step_attivatore;
 } Config;
 
 Config *globalConfig;

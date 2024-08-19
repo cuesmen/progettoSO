@@ -9,6 +9,7 @@
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/sem.h>
+#include <sys/msg.h>
 #include <fcntl.h>
 #include <string.h>
 #include <time.h>
@@ -38,8 +39,15 @@ void wait_for_Configchild_process(pid_t config_pid);
 void cleanup(SharedMemory shared_memory, int shm_fd, const char *shm_name, int sem_id);
 
 // Funzione per creare e eseguire un processo atomo
-int create_and_execute_atomo(int num, const char *shm_name);
+int create_and_execute_atomo(int num, const char *shm_name, int msgid);
 
+// Funzione per creare un semaforo
 int create_semaphore(key_t sem_key);
+
+// Funzione per creare e eseguire un processo attivatore
+int create_and_execute_attivatore(const char *shm_name, int msgid);
+
+// Funzione per creare una coda di messaggi
+int create_message_queue(const char *shm_name);
 
 #endif // MASTER_H
