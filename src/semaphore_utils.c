@@ -1,5 +1,6 @@
 #include "semaphore_utils.h"
 
+
 void semaphore_p(int sem_id) {
     struct sembuf sem_b;
     sem_b.sem_num = 0;

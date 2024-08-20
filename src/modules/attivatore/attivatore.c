@@ -1,6 +1,12 @@
 #include "attivatore.h"
 
 static SharedMemory *shared_memory = NULL;
+volatile sig_atomic_t stop = 0;  
+
+void handle_signal(int)
+{
+    stop = 1;  
+}
 
 int get_semaphore_id(const char *shm_name) {
     key_t sem_key = ftok(shm_name, 'S');
@@ -19,7 +25,7 @@ int map_attivatore_shared_memory(const char *shm_name, SharedMemory **shared_mem
         return -1;
     }
 
-    void *shared_area = mmap(NULL, sizeof(Config) + 3 * sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    void *shared_area = mmap(NULL, sizeof(Config) + 4 * sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
     if (shared_area == MAP_FAILED) {
         perror("mmap");
         close(shm_fd);
@@ -38,6 +44,7 @@ int map_attivatore_shared_memory(const char *shm_name, SharedMemory **shared_mem
     (*shared_memory_ptr)->shared_free_energy = (int *)((char *)shared_area + sizeof(Config));
     (*shared_memory_ptr)->total_atoms_counter = (int *)((char *)shared_area + sizeof(Config) + sizeof(int));
     (*shared_memory_ptr)->total_atoms = (int *)((char *)shared_area + sizeof(Config) + 2 * sizeof(int));
+    (*shared_memory_ptr)->toEnd = (int *)((char *)shared_area + sizeof(Config) + 3 * sizeof(int));
 
     close(shm_fd);
     return 0;
@@ -70,7 +77,7 @@ void cleanup_ipc_resources(int msgid, SharedMemory *shared_memory) {
         perror("msgctl IPC_RMID");
     }
     if (shared_memory != NULL) {
-        munmap(shared_memory->shared_config, sizeof(Config) + 3 * sizeof(int));
+        munmap(shared_memory->shared_config, sizeof(Config) + 4 * sizeof(int));
         free(shared_memory);
     }
 }
@@ -92,7 +99,7 @@ void init_shared_memory_and_semaphore(const char *shm_name, int *sem_id, int msg
     }
 }
 
-void init_attivatore(int sem_id, const char *shm_name) {
+void init_attivatore(int sem_id) {
     semaphore_p(sem_id);
     int step_attivatore = shared_memory->shared_config->step_attivatore;
     semaphore_v(sem_id);
@@ -103,10 +110,34 @@ void init_attivatore(int sem_id, const char *shm_name) {
         exit(EXIT_FAILURE);
     }
 
-    printf("Attivatore avviato con shared_memory_name: %s\n", shm_name);
-    printf("Valore di step_attivatore: %d\n", step_attivatore);
-    sleep(2);
+    //printf("Attivatore avviato con shared_memory_name: %s\n", shm_name);
+    //printf("Valore di step_attivatore: %d\n", step_attivatore);
+    sleep(1);
 }
+
+
+void terminate_all_atoms(int msgid, int current_atoms, SharedMemory *shared_memory) {
+
+    for (int i = 0; i < current_atoms; i++) {
+        if (send_message_to_atoms(msgid, 1, "terminate") != 0) {
+            handle_Attivatoreerror("Errore nell'invio del messaggio terminate agli atomi", msgid, shared_memory);
+        }
+    }
+
+    struct msg_buffer message;
+    while (msgrcv(msgid, &message, sizeof(message.msg_text), 0, IPC_NOWAIT) != -1) {
+        //printf("Messaggio rimosso dalla coda: %s\n", message.msg_text);
+    }
+
+    if (errno != ENOMSG) {
+        perror("Errore durante lo svuotamento della coda di messaggi");
+    } else {
+        printf("Coda di messaggi svuotata con successo.\n");
+    }
+
+}
+
+
 
 void attivatore_main_loop(int sem_id, int msgid, int step_attivatore) {
     while (1) {
@@ -114,9 +145,22 @@ void attivatore_main_loop(int sem_id, int msgid, int step_attivatore) {
 
         semaphore_p(sem_id);
         int current_atoms = *(shared_memory->total_atoms_counter);
+        int toEnd = *(shared_memory->toEnd);
         semaphore_v(sem_id);
 
         if (current_atoms <= 0) {
+            break;
+        }
+
+
+        if(toEnd == 1){
+            terminate_all_atoms(msgid,current_atoms,shared_memory);
+            break;
+        }
+
+
+        if(stop){
+            terminate_all_atoms(msgid,current_atoms,shared_memory);
             break;
         }
 
@@ -138,12 +182,14 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    signal(SIGTERM, handle_signal);
+
     const char *shm_name = argv[1];
     int msgid = atoi(argv[2]);
 
     int sem_id = -1;
     init_shared_memory_and_semaphore(shm_name, &sem_id, msgid);
-    init_attivatore(sem_id, shm_name);
+    init_attivatore(sem_id);
 
     int step_attivatore = shared_memory->shared_config->step_attivatore;
     attivatore_main_loop(sem_id, msgid, step_attivatore);

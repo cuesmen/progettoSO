@@ -28,12 +28,12 @@ int get_semaphore_id(const char *shm_name) {
 
 int map_atomo_shared_memory(const char *shm_name, SharedMemory **shared_memory_ptr) {
     int shm_fd;
-    int attempts = 3;
+    int attempts = 1;
     while (attempts-- > 0) {
         shm_fd = shm_open(shm_name, O_RDWR, 0666);
         if (shm_fd != -1)
             break;
-        printYellow("Attesa prima di riprovare a mappare la memoria condivisa...\n");
+        //printYellow("Attesa prima di riprovare a mappare la memoria condivisa...\n");
         sleep(1);
     }
 
@@ -41,17 +41,17 @@ int map_atomo_shared_memory(const char *shm_name, SharedMemory **shared_memory_p
         return -1;
     }
 
-    void *shared_area = mmap(NULL, sizeof(Config) + 3 * sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    void *shared_area = mmap(NULL, sizeof(Config) + 4 * sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
     if (shared_area == MAP_FAILED) {
-        printRed("Errore: impossibile mappare l'area di memoria condivisa\n");
+        //printRed("Errore: impossibile mappare l'area di memoria condivisa\n");
         close(shm_fd);
         return -1;
     }
 
     *shared_memory_ptr = (SharedMemory *)malloc(sizeof(SharedMemory));
     if (*shared_memory_ptr == NULL) {
-        printRed("Errore: malloc fallito durante la mappatura della memoria condivisa\n");
-        munmap(shared_area, sizeof(Config) + 3 * sizeof(int));
+        //printRed("Errore: malloc fallito durante la mappatura della memoria condivisa\n");
+        munmap(shared_area, sizeof(Config) + 4 * sizeof(int));
         close(shm_fd);
         return -1;
     }
@@ -60,6 +60,7 @@ int map_atomo_shared_memory(const char *shm_name, SharedMemory **shared_memory_p
     (*shared_memory_ptr)->shared_free_energy = (int *)((char *)shared_area + sizeof(Config));
     (*shared_memory_ptr)->total_atoms_counter = (int *)((char *)shared_area + sizeof(Config) + sizeof(int));
     (*shared_memory_ptr)->total_atoms = (int *)((char *)shared_area + sizeof(Config) + 2 * sizeof(int));
+    (*shared_memory_ptr)->toEnd = (int *)((char *)shared_area + sizeof(Config) + 3 * sizeof(int));
 
     close(shm_fd);
     return 0;
@@ -74,6 +75,7 @@ void init_signals() {
 void init_shared_memory_and_semaphore(const char *shm_name, int *sem_id) {
     if (map_atomo_shared_memory(shm_name, &shared_memory) != 0) {
         handleAtomo_error("Errore nella mappatura della memoria condivisa", shm_name, -1, -1);
+        exit(0);
     }
 
     *sem_id = get_semaphore_id(shm_name);
@@ -82,6 +84,10 @@ void init_shared_memory_and_semaphore(const char *shm_name, int *sem_id) {
 
 void init_atom(int sem_id) {
     semaphore_p(sem_id);
+
+    if (*(shared_memory->toEnd) == 1){
+        exit(0);
+    }
 
     *(shared_memory->total_atoms_counter) += 1;
     *(shared_memory->total_atoms) += 1;
@@ -98,6 +104,9 @@ void atom_main_loop(int sem_id, int msgid) {
     struct msg_buffer message;
 
     while (1) {
+
+
+
         printBlueDebug(debugMode, "Atomo %d: In attesa di un messaggio...\n", num);
         sleep(atomSleep);
         if (msgrcv(msgid, &message, sizeof(message.msg_text), 1, 0) == -1) {
@@ -105,13 +114,17 @@ void atom_main_loop(int sem_id, int msgid) {
                 printYellowDebug(debugMode, "Coda di messaggi rimossa o nessun messaggio disponibile. Atomo %d si sta terminando...\n", num);
                 break;
             } else {
-                printRed("Errore durante la ricezione del messaggio\n");
+                //printRed("Errore durante la ricezione del messaggio\n");
                 break;
             }
         }
         if (strcmp(message.msg_text, "split") == 0) {
             printGreenDebug(debugMode, "Atomo con num %d ha ricevuto split\n", num);
             split_and_create_new_atomo(shm_name, sem_id, msgid);
+        }
+        if (strcmp(message.msg_text, "terminate") == 0) {
+            printGreenDebug(debugMode, "Atomo con num %d ha ricevuto terminate\n", num);
+            break;
         }
     }
 
@@ -187,7 +200,7 @@ void terminate_atomo(int sem_id) {
 }
 
 void handleAtomo_error(const char *msg, const char *shm_name, int sem_id, int msgid) {
-    printRed("%s\n", msg);
+    printRedDebug(0, "%s\n", msg);
     cleanup_ipc_resources(shm_name, sem_id, msgid);
     exit(EXIT_FAILURE);
 }

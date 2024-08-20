@@ -9,7 +9,10 @@ typedef struct {
     float atom_sleep;
     int step_attivatore;
     int min_n_atomico;
-    int step_alimentazione;
+    long step_alimentazione;
+    int sim_duration;
+    int energy_explode_threshold;
+    int energy_demand;
 } Config;
 
 
@@ -19,6 +22,7 @@ typedef struct {
     int *shared_free_energy;
     int *total_atoms_counter;
     int *total_atoms;
+    int *toEnd;
 } SharedMemory;
 
 

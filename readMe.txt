@@ -12,5 +12,7 @@ roadMap:
 daFare:
 - Rivedere commenti
 - Eliminare include a caso
-- PrintDebug generale
 - MIN_N_ATOMICO = 1 LOOP
+- Master loop uscita
+
+cd /mnt/c/users/cosmi/onedrive/desktop/progetto_so

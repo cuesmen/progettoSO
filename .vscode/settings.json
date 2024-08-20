@@ -18,6 +18,9 @@
         "stdarg.h": "c",
         "semaphore.h": "c",
         "structure_utils.h": "c",
-        "alimentazione.h": "c"
+        "alimentazione.h": "c",
+        "msg.h": "c",
+        "log_utils.h": "c",
+        "resource.h": "c"
     }
 }

@@ -19,6 +19,7 @@
 #include <semaphore.h>
 #include <stdarg.h>
 #include <errno.h> 
+#include <signal.h>
 
 // Funzioni IPC
 int get_semaphore_id(const char *shm_name);
@@ -29,7 +30,7 @@ int send_message_to_atoms(int msgid, long msg_type, const char *msg_text);
 
 // Funzioni di inizializzazione
 void init_shared_memory_and_semaphore(const char *shm_name, int *sem_id, int msgid);
-void init_attivatore(int sem_id, const char *shm_name) ;
+void init_attivatore(int sem_id) ;
 
 // Funzioni di ciclo principale
 void attivatore_main_loop(int sem_id, int msgid, int step_attivatore);

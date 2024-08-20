@@ -19,14 +19,14 @@ TARGET_ATTIVATORE=attivatore
 TARGET_ALIMENTAZIONE=alimentazione
 
 # File sorgenti
-SRCS_MASTER=$(MODULEDIR)/master/master.c $(LIBDIR)/ini.c $(SRCDIR)/semaphore_utils.c
+SRCS_MASTER=$(MODULEDIR)/master/master.c $(LIBDIR)/ini.c $(SRCDIR)/semaphore_utils.c $(SRCDIR)/log_utils.c
 SRCS_CONFIG=$(MODULEDIR)/config/config.c $(LIBDIR)/ini.c
 SRCS_ATOMO=$(MODULEDIR)/atomo/atomo.c $(SRCDIR)/semaphore_utils.c $(SRCDIR)/log_utils.c
 SRCS_ATTIVATORE=$(MODULEDIR)/attivatore/attivatore.c $(SRCDIR)/semaphore_utils.c
 SRCS_ALIMENTAZIONE=$(MODULEDIR)/alimentazione/alimentazione.c
 
 # File oggetto
-OBJS_MASTER=$(OBJDIR)/master.o $(OBJDIR)/ini.o $(OBJDIR)/semaphore_utils.o
+OBJS_MASTER=$(OBJDIR)/master.o $(OBJDIR)/ini.o $(OBJDIR)/semaphore_utils.o $(OBJDIR)/log_utils.o
 OBJS_CONFIG=$(OBJDIR)/config.o $(OBJDIR)/ini.o
 OBJS_ATOMO=$(OBJDIR)/atomo.o $(OBJDIR)/semaphore_utils.o $(OBJDIR)/log_utils.o
 OBJS_ATTIVATORE=$(OBJDIR)/attivatore.o $(OBJDIR)/semaphore_utils.o

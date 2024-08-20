@@ -41,6 +41,15 @@ static int handler(void* user, const char* section, const char* name, const char
         if (strcmp(name, "atom_sleep") == 0) {
             pconfig->atom_sleep = atof(value);
         }
+        if (strcmp(name, "SIM_DURATION") == 0) {
+            pconfig->sim_duration = atoi(value);
+        }
+        if (strcmp(name, "ENERGY_EXPLODE_THRESHOLD") == 0) {
+            pconfig->energy_explode_threshold = atoi(value);
+        }
+        if (strcmp(name, "ENERGY_DEMAND") == 0) {
+            pconfig->energy_demand = atoi(value);
+        }
     }
 
     return 1;  
@@ -63,7 +72,10 @@ void printConfig() {
     printf("Debug mode?: %d\n", globalConfig->debug);
     printf("Atom sleep: %.1f\n", globalConfig->atom_sleep);
     printf("Step attivatore: %d\n", globalConfig->step_attivatore);
-    printf("Step alimentazione: %d\n", globalConfig->step_alimentazione);
+    printf("Step alimentazione: %ld\n", globalConfig->step_alimentazione);
+    printf("Sim duration: %d\n", globalConfig->sim_duration);
+    printf("Energy explode threshold: %d\n", globalConfig->energy_explode_threshold);
+    printf("Energy demand: %d\n\n", globalConfig->energy_demand);
     fflush(stdout);
 }
 
