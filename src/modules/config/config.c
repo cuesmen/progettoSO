@@ -20,10 +20,18 @@ static int handler(void* user, const char* section, const char* name, const char
         if (strcmp(name, "N_ATOM_MAX") == 0) {
             pconfig->n_atom_max = atoi(value);
         }
+         if (strcmp(name, "MIN_N_ATOMICO") == 0) {
+            pconfig->min_n_atomico = atoi(value);
+        }
     }
     if (strcmp(section, "ATTIVATORE") == 0) {
         if (strcmp(name, "STEP_ATTIVATORE") == 0) {
             pconfig->step_attivatore = atoi(value);
+        }
+    }
+    if (strcmp(section, "ALIMENTAZIONE") == 0) {
+        if (strcmp(name, "STEP_ALIMENTAZIONE") == 0) {
+            pconfig->step_alimentazione = atoi(value);
         }
     }
     if (strcmp(section, "GENERAL") == 0) {
@@ -51,9 +59,11 @@ int loadConfig() {
 void printConfig() {
     printf("Numero di atomi iniziali: %d\n", globalConfig->n_atomi_init);
     printf("Numero atom max: %d\n", globalConfig->n_atom_max);
+    printf("Numero minimo di un atomo: %d\n", globalConfig->min_n_atomico);
     printf("Debug mode?: %d\n", globalConfig->debug);
     printf("Atom sleep: %.1f\n", globalConfig->atom_sleep);
     printf("Step attivatore: %d\n", globalConfig->step_attivatore);
+    printf("Step alimentazione: %d\n", globalConfig->step_alimentazione);
     fflush(stdout);
 }
 

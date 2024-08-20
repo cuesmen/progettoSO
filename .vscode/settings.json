@@ -15,6 +15,9 @@
         "sem.h": "c",
         "mman.h": "c",
         "semaphore_utils.h": "c",
-        "stdarg.h": "c"
+        "stdarg.h": "c",
+        "semaphore.h": "c",
+        "structure_utils.h": "c",
+        "alimentazione.h": "c"
     }
 }

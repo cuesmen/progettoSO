@@ -1,12 +1,13 @@
 # Compilatore
 CC=gcc
-CFLAGS=-Wall -Wvla -Wextra -Werror
+CFLAGS=-Wall -Wvla -Wextra -Werror -D_GNU_SOURCE
 
 # Directory degli oggetti
 OBJDIR=objects
 
 # Directory dei file sorgenti e header
-MODULEDIR=src/modules
+SRCDIR=src
+MODULEDIR=$(SRCDIR)/modules
 INCDIR=$(MODULEDIR)/include
 LIBDIR=libs
 
@@ -15,21 +16,24 @@ TARGET_MASTER=master
 TARGET_CONFIG=config
 TARGET_ATOMO=atomo
 TARGET_ATTIVATORE=attivatore
+TARGET_ALIMENTAZIONE=alimentazione
 
 # File sorgenti
-SRCS_MASTER=$(MODULEDIR)/master/master.c $(LIBDIR)/ini.c $(MODULEDIR)/semaphore_utils.c
+SRCS_MASTER=$(MODULEDIR)/master/master.c $(LIBDIR)/ini.c $(SRCDIR)/semaphore_utils.c
 SRCS_CONFIG=$(MODULEDIR)/config/config.c $(LIBDIR)/ini.c
-SRCS_ATOMO=$(MODULEDIR)/atomo/atomo.c $(MODULEDIR)/semaphore_utils.c
-SRCS_ATTIVATORE=$(MODULEDIR)/attivatore/attivatore.c $(MODULEDIR)/semaphore_utils.c
+SRCS_ATOMO=$(MODULEDIR)/atomo/atomo.c $(SRCDIR)/semaphore_utils.c $(SRCDIR)/log_utils.c
+SRCS_ATTIVATORE=$(MODULEDIR)/attivatore/attivatore.c $(SRCDIR)/semaphore_utils.c
+SRCS_ALIMENTAZIONE=$(MODULEDIR)/alimentazione/alimentazione.c
 
 # File oggetto
-OBJS_MASTER=$(patsubst %.c,$(OBJDIR)/%.o,$(notdir $(SRCS_MASTER)))
-OBJS_CONFIG=$(patsubst %.c,$(OBJDIR)/%.o,$(notdir $(SRCS_CONFIG)))
-OBJS_ATOMO=$(patsubst %.c,$(OBJDIR)/%.o,$(notdir $(SRCS_ATOMO)))
-OBJS_ATTIVATORE=$(patsubst %.c,$(OBJDIR)/%.o,$(notdir $(SRCS_ATTIVATORE)))
+OBJS_MASTER=$(OBJDIR)/master.o $(OBJDIR)/ini.o $(OBJDIR)/semaphore_utils.o
+OBJS_CONFIG=$(OBJDIR)/config.o $(OBJDIR)/ini.o
+OBJS_ATOMO=$(OBJDIR)/atomo.o $(OBJDIR)/semaphore_utils.o $(OBJDIR)/log_utils.o
+OBJS_ATTIVATORE=$(OBJDIR)/attivatore.o $(OBJDIR)/semaphore_utils.o
+OBJS_ALIMENTAZIONE=$(OBJDIR)/alimentazione.o
 
 # Target principale
-all: $(TARGET_MASTER) $(TARGET_CONFIG) $(TARGET_ATOMO) $(TARGET_ATTIVATORE)
+all: $(TARGET_MASTER) $(TARGET_CONFIG) $(TARGET_ATOMO) $(TARGET_ATTIVATORE) $(TARGET_ALIMENTAZIONE)
 
 # Compilazione del master
 $(TARGET_MASTER): $(OBJS_MASTER)
@@ -47,35 +51,32 @@ $(TARGET_ATOMO): $(OBJS_ATOMO)
 $(TARGET_ATTIVATORE): $(OBJS_ATTIVATORE)
 	$(CC) $(CFLAGS) -o $(TARGET_ATTIVATORE) $(OBJS_ATTIVATORE)
 
-# Regola generale per compilare qualsiasi file .c in un file .o
-$(OBJDIR)/%.o: $(MODULEDIR)/master/%.c
-	mkdir -p $(OBJDIR)
-	$(CC) $(CFLAGS) -I$(INCDIR) -I$(MODULEDIR)/atomo -c $< -o $@
+# Compilazione di alimentazione
+$(TARGET_ALIMENTAZIONE): $(OBJS_ALIMENTAZIONE)
+	$(CC) $(CFLAGS) -o $(TARGET_ALIMENTAZIONE) $(OBJS_ALIMENTAZIONE)
 
-$(OBJDIR)/%.o: $(MODULEDIR)/atomo/%.c
+# Regola generale per compilare i file .c in un file .o per i moduli
+$(OBJDIR)/%.o: $(MODULEDIR)/*/%.c
 	mkdir -p $(OBJDIR)
-	$(CC) $(CFLAGS) -I$(INCDIR) -I$(MODULEDIR)/atomo -c $< -o $@
+	$(CC) $(CFLAGS) -I$(INCDIR) -c $< -o $@
 
-$(OBJDIR)/%.o: $(MODULEDIR)/config/%.c
+# Regola per compilare i file direttamente nella directory src
+$(OBJDIR)/semaphore_utils.o: $(SRCDIR)/semaphore_utils.c
 	mkdir -p $(OBJDIR)
-	$(CC) $(CFLAGS) -I$(INCDIR) -I$(MODULEDIR)/atomo -c $< -o $@
+	$(CC) $(CFLAGS) -I$(INCDIR) -c $< -o $@
 
-$(OBJDIR)/%.o: $(MODULEDIR)/attivatore/%.c
+$(OBJDIR)/log_utils.o: $(SRCDIR)/log_utils.c
 	mkdir -p $(OBJDIR)
-	$(CC) $(CFLAGS) -I$(INCDIR) -I$(MODULEDIR)/atomo -c $< -o $@
+	$(CC) $(CFLAGS) -I$(INCDIR) -c $< -o $@
 
+# Regola per compilare i file nella directory libs
 $(OBJDIR)/%.o: $(LIBDIR)/%.c
 	mkdir -p $(OBJDIR)
-	$(CC) $(CFLAGS) -I$(INCDIR) -I$(MODULEDIR)/atomo -c $< -o $@
-
-# Aggiungi una regola per compilare semaphore_utils.c
-$(OBJDIR)/%.o: $(MODULEDIR)/%.c
-	mkdir -p $(OBJDIR)
-	$(CC) $(CFLAGS) -I$(INCDIR) -I$(MODULEDIR)/atomo -c $< -o $@
+	$(CC) $(CFLAGS) -I$(INCDIR) -c $< -o $@
 
 # Pulizia dei file generati
 clean:
-	rm -rf $(OBJDIR) $(TARGET_MASTER) $(TARGET_CONFIG) $(TARGET_ATOMO) $(TARGET_ATTIVATORE)
+	rm -rf $(OBJDIR) $(TARGET_MASTER) $(TARGET_CONFIG) $(TARGET_ATOMO) $(TARGET_ATTIVATORE) $(TARGET_ALIMENTAZIONE)
 
 run: all
 	./$(TARGET_MASTER)

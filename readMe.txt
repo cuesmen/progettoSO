@@ -12,5 +12,5 @@ roadMap:
 daFare:
 - Rivedere commenti
 - Eliminare include a caso
-- Spostare le struct in utils
-- Utiizzare signal handler per i semafori per deallocarli se il programma termina in modo anomalo
+- PrintDebug generale
+- MIN_N_ATOMICO = 1 LOOP

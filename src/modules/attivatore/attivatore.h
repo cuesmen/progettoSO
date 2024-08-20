@@ -1,7 +1,9 @@
 #ifndef ATTIVATORE_H
 #define ATTIVATORE_H
 
-#include "../master/master.h"
+#include "../../structure_utils.h"
+#include "../../semaphore_utils.h"
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -12,16 +14,30 @@
 #include <sys/stat.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
+#include <sys/shm.h>
+#include <sys/sem.h>
 #include <semaphore.h>
+#include <stdarg.h>
+#include <errno.h> 
 
-struct msg_buffer {
-    long msg_type;
-    char msg_text[100];
-};
+// Funzioni IPC
+int get_semaphore_id(const char *shm_name);
+int map_attivatore_shared_memory(const char *shm_name, SharedMemory **shared_memory);
 
-int get_step_attivatore(const char *shm_name);
+// Funzioni di invio messaggi
 int send_message_to_atoms(int msgid, long msg_type, const char *msg_text);
-void cleanup_ipc_resources(int msgid);
+
+// Funzioni di inizializzazione
+void init_shared_memory_and_semaphore(const char *shm_name, int *sem_id, int msgid);
+void init_attivatore(int sem_id, const char *shm_name) ;
+
+// Funzioni di ciclo principale
+void attivatore_main_loop(int sem_id, int msgid, int step_attivatore);
+
+// Cleanup e gestione errori
+void cleanup_ipc_resources(int msgid, SharedMemory *shared_memory);
+void handle_Attivatoreerror(const char *msg, int msgid, SharedMemory *shared_memory);
+
 
 
 #endif
