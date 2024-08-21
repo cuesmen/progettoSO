@@ -29,15 +29,15 @@ int map_attivatore_shared_memory(const char *shm_name, SharedMemory **shared_mem
 int send_message_to_atoms(int msgid, long msg_type, const char *msg_text);
 
 // Funzioni di inizializzazione
-void init_shared_memory_and_semaphore(const char *shm_name, int *sem_id, int msgid);
+void init_shared_memory_and_semaphore(const char *shm_name, int *sem_id);
 void init_attivatore(int sem_id) ;
 
 // Funzioni di ciclo principale
 void attivatore_main_loop(int sem_id, int msgid, int step_attivatore);
 
 // Cleanup e gestione errori
-void cleanup_ipc_resources(int msgid, SharedMemory *shared_memory);
-void handle_Attivatoreerror(const char *msg, int msgid, SharedMemory *shared_memory);
+void cleanup_ipc_resources(SharedMemory *shared_memory);
+void handle_Attivatoreerror(const char *msg, SharedMemory *shared_memory);
 
 
 

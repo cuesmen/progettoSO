@@ -25,7 +25,7 @@ int map_attivatore_shared_memory(const char *shm_name, SharedMemory **shared_mem
         return -1;
     }
 
-    void *shared_area = mmap(NULL, sizeof(Config) + 4 * sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    void *shared_area = mmap(NULL, sizeof(Config) + MEMSIZE * sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
     if (shared_area == MAP_FAILED) {
         perror("mmap");
         close(shm_fd);
@@ -35,7 +35,7 @@ int map_attivatore_shared_memory(const char *shm_name, SharedMemory **shared_mem
     *shared_memory_ptr = (SharedMemory *)malloc(sizeof(SharedMemory));
     if (*shared_memory_ptr == NULL) {
         perror("malloc");
-        munmap(shared_area, sizeof(Config) + 3 * sizeof(int));
+        munmap(shared_area, sizeof(Config) + MEMSIZE * sizeof(int));
         close(shm_fd);
         return -1;
     }
@@ -45,6 +45,8 @@ int map_attivatore_shared_memory(const char *shm_name, SharedMemory **shared_mem
     (*shared_memory_ptr)->total_atoms_counter = (int *)((char *)shared_area + sizeof(Config) + sizeof(int));
     (*shared_memory_ptr)->total_atoms = (int *)((char *)shared_area + sizeof(Config) + 2 * sizeof(int));
     (*shared_memory_ptr)->toEnd = (int *)((char *)shared_area + sizeof(Config) + 3 * sizeof(int));
+    (*shared_memory_ptr)->total_wastes = (int *)((char *)shared_area + sizeof(Config) + 4 * sizeof(int));
+    (*shared_memory_ptr)->total_attivatore = (int *)((char *)shared_area + sizeof(Config) + 5 * sizeof(int));
 
     close(shm_fd);
     return 0;
@@ -67,35 +69,33 @@ int send_message_to_atoms(int msgid, long msg_type, const char *msg_text) {
                 return -1;
             }
         }
+        
         break;
     }
     return 0;
 }
 
-void cleanup_ipc_resources(int msgid, SharedMemory *shared_memory) {
-    if (msgid != -1 && msgctl(msgid, IPC_RMID, NULL) == -1) {
-        perror("msgctl IPC_RMID");
-    }
+void cleanup_ipc_resources(SharedMemory *shared_memory) {
     if (shared_memory != NULL) {
-        munmap(shared_memory->shared_config, sizeof(Config) + 4 * sizeof(int));
+        munmap(shared_memory->shared_config, sizeof(Config) + MEMSIZE * sizeof(int));
         free(shared_memory);
     }
 }
 
-void handle_Attivatoreerror(const char *msg, int msgid, SharedMemory *shared_memory) {
+void handle_Attivatoreerror(const char *msg, SharedMemory *shared_memory) {
     perror(msg);
-    cleanup_ipc_resources(msgid, shared_memory);
+    cleanup_ipc_resources(shared_memory);
     exit(EXIT_FAILURE);
 }
 
-void init_shared_memory_and_semaphore(const char *shm_name, int *sem_id, int msgid) {
+void init_shared_memory_and_semaphore(const char *shm_name, int *sem_id) {
     if (map_attivatore_shared_memory(shm_name, &shared_memory) != 0) {
-        handle_Attivatoreerror("Errore nella mappatura della memoria condivisa", msgid, shared_memory);
+        handle_Attivatoreerror("Errore nella mappatura della memoria condivisa", shared_memory);
     }
 
     *sem_id = get_semaphore_id(shm_name);
     if (*sem_id == -1) {
-        handle_Attivatoreerror("Errore nel recupero del semaforo", msgid, shared_memory);
+        handle_Attivatoreerror("Errore nel recupero del semaforo", shared_memory);
     }
 }
 
@@ -106,7 +106,7 @@ void init_attivatore(int sem_id) {
 
     if (step_attivatore <= 0) {
         fprintf(stderr, "Valore di step_attivatore non valido: %d\n", step_attivatore);
-        cleanup_ipc_resources(-1, shared_memory);
+        cleanup_ipc_resources(shared_memory);
         exit(EXIT_FAILURE);
     }
 
@@ -120,7 +120,7 @@ void terminate_all_atoms(int msgid, int current_atoms, SharedMemory *shared_memo
 
     for (int i = 0; i < current_atoms; i++) {
         if (send_message_to_atoms(msgid, 1, "terminate") != 0) {
-            handle_Attivatoreerror("Errore nell'invio del messaggio terminate agli atomi", msgid, shared_memory);
+            handle_Attivatoreerror("Errore nell'invio del messaggio terminate agli atomi", shared_memory);
         }
     }
 
@@ -142,6 +142,8 @@ void terminate_all_atoms(int msgid, int current_atoms, SharedMemory *shared_memo
 void attivatore_main_loop(int sem_id, int msgid, int step_attivatore) {
     while (1) {
         sleep(step_attivatore);
+
+        int atoms_success = 0;
 
         semaphore_p(sem_id);
         int current_atoms = *(shared_memory->total_atoms_counter);
@@ -170,8 +172,17 @@ void attivatore_main_loop(int sem_id, int msgid, int step_attivatore) {
 
         for (int i = 0; i < r; i++) {
             if (send_message_to_atoms(msgid, 1, "split") != 0) {
-                handle_Attivatoreerror("Errore nell'invio del messaggio agli atomi", msgid, shared_memory);
+                handle_Attivatoreerror("Errore nell'invio del messaggio agli atomi", shared_memory);
             }
+            else{
+                atoms_success += 1;
+            }
+        }
+
+        if(atoms_success > 0){
+            semaphore_p(sem_id);
+            *(shared_memory->total_attivatore) += atoms_success;
+            semaphore_v(sem_id);
         }
     }
 }
@@ -188,14 +199,14 @@ int main(int argc, char *argv[]) {
     int msgid = atoi(argv[2]);
 
     int sem_id = -1;
-    init_shared_memory_and_semaphore(shm_name, &sem_id, msgid);
+    init_shared_memory_and_semaphore(shm_name, &sem_id);
     init_attivatore(sem_id);
 
     int step_attivatore = shared_memory->shared_config->step_attivatore;
     attivatore_main_loop(sem_id, msgid, step_attivatore);
 
     //printf("\n\nTutti gli atomi sono terminati. Attivatore si sta spegnendo...\n\n");
-    cleanup_ipc_resources(msgid, shared_memory);
+    cleanup_ipc_resources(shared_memory);
 
     return 0;
 }

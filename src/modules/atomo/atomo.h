@@ -47,7 +47,7 @@ void init_atom(int sem_id);
 void atom_main_loop(int sem_id, int msgid);
 
 // Cleanup e gestione errori
-void cleanup_ipc_resources(const char *shm_name, int sem_id, int msgid);
-void handleAtomo_error(const char *msg, const char *shm_name, int sem_id, int msgid);
+//void handleAtomo_error(const char *msg, const char *shm_name, int sem_id, int msgid);
+void handleAtomo_error(const char *msg, int sem_id);
 
 #endif // ATOMO_H

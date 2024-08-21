@@ -16,3 +16,7 @@ daFare:
 - Master loop uscita
 
 cd /mnt/c/users/cosmi/onedrive/desktop/progetto_so
+make clean
+make
+rm atomo
+./master

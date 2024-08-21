@@ -1,6 +1,8 @@
 #ifndef STRUCTURE_UTILS_H
 #define STRUCTURE_UTILS_H
 
+#define MEMSIZE 7
+
 // Struttura che contiene i parametri di configurazione
 typedef struct {
     int n_atomi_init;  
@@ -23,6 +25,9 @@ typedef struct {
     int *total_atoms_counter;
     int *total_atoms;
     int *toEnd;
+    int *total_wastes;
+    int *total_attivatore;
+    int *total_splits;
 } SharedMemory;
 
 

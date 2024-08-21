@@ -1,11 +1,74 @@
 #include "master.h"
 
+// Variabili globali
 pid_t alimentazione_pid;
 pid_t attivatore_pid;
 struct rlimit limit;
 int energy_demand;
 int total_energy_demanded = 0;
 int total_current_energy = 0;
+
+int shm_fd = -1;
+int sem_id = -1;
+int msgid = -1;
+const char *shm_name = "/wConfig";
+SharedMemory shared_memory = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+
+void handle_sigusr1(int sig)
+{
+    if (sig == SIGUSR1)
+    {
+        kill(alimentazione_pid, SIGTERM);
+        kill(attivatore_pid, SIGTERM);
+        ExitCode exit_code = MELTDOWN;
+        printRed("\nProgram exited with code: %d, meaning %s\n\n", exit_code, get_exit_code_description(exit_code));
+        cleanup();  // Richiama cleanup senza argomenti
+        exit(1);
+    }
+}
+
+void handle_sigint(int sig)
+{
+    if (sig == SIGINT)
+    {
+        printf("\nCTRL+C received, cleaning up and exiting...\n");
+        kill(alimentazione_pid, SIGTERM);
+        kill(attivatore_pid, SIGTERM);
+        cleanup(); 
+        exit(0);
+    }
+}
+
+void cleanup()
+{
+    if (shared_memory.shared_config != NULL)
+    {
+        munmap(shared_memory.shared_config, sizeof(Config) + sizeof(int) * MEMSIZE);
+    }
+    if (shm_fd != -1)
+    {
+        close(shm_fd);
+    }
+    if (shm_name != NULL)
+    {
+        shm_unlink(shm_name);
+    }
+    if (msgid != -1)
+    {
+        msgctl(msgid, IPC_RMID, NULL);
+    }
+    if (sem_id != -1)
+    {
+        semctl(sem_id, 0, IPC_RMID);
+    }
+}
+
+void handle_error(const char *msg)
+{
+    perror(msg);
+    cleanup();
+    exit(0);
+}
 
 int create_semaphore(key_t sem_key)
 {
@@ -42,7 +105,7 @@ int create_and_open_shared_memory(const char *shm_name, int *shm_fd)
         perror("shm_open");
         return 1;
     }
-    if (ftruncate(*shm_fd, sizeof(Config) + sizeof(int) * 4) == -1)
+    if (ftruncate(*shm_fd, sizeof(Config) + sizeof(int) * MEMSIZE) == -1)
     {
         perror("ftruncate");
         return 1;
@@ -54,7 +117,7 @@ SharedMemory map_shared_memory(int shm_fd)
 {
     SharedMemory shared_memory;
 
-    void *shared_area = mmap(NULL, sizeof(Config) + sizeof(int) * 4, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    void *shared_area = mmap(NULL, sizeof(Config) + sizeof(int) * MEMSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
     if (shared_area == MAP_FAILED)
     {
         perror("mmap");
@@ -67,12 +130,18 @@ SharedMemory map_shared_memory(int shm_fd)
     shared_memory.total_atoms_counter = (int *)((char *)shared_area + sizeof(Config) + sizeof(int));
     shared_memory.total_atoms = (int *)((char *)shared_area + sizeof(Config) + sizeof(int) * 2);
     shared_memory.toEnd = (int *)((char *)shared_area + sizeof(Config) + sizeof(int) * 3);
+    shared_memory.total_wastes = (int *)((char *)shared_area + sizeof(Config) + sizeof(int) * 4);
+    shared_memory.total_attivatore = (int *)((char *)shared_area + sizeof(Config) + sizeof(int) * 5);
+    shared_memory.total_splits = (int *)((char *)shared_area + sizeof(Config) + sizeof(int) * 6);
 
     memset(shared_memory.shared_config, 0, sizeof(Config));
     *(shared_memory.shared_free_energy) = 0;
     *(shared_memory.total_atoms_counter) = 0;
     *(shared_memory.total_atoms) = 0;
     *(shared_memory.toEnd) = 0;
+    *(shared_memory.total_wastes) = 0;
+    *(shared_memory.total_attivatore) = 0;
+    *(shared_memory.total_splits) = 0;
 
     return shared_memory;
 }
@@ -89,45 +158,6 @@ int create_message_queue(const char *shm_name)
     return msgid;
 }
 
-void cleanup(SharedMemory shared_memory, int shm_fd, const char *shm_name, int sem_id, int msgid)
-{
-    if (shared_memory.shared_config != NULL)
-    {
-        munmap(shared_memory.shared_config, sizeof(Config) + sizeof(int) * 4);
-    }
-    if (shm_fd != -1)
-    {
-        close(shm_fd);
-    }
-    if (shm_name != NULL)
-    {
-        shm_unlink(shm_name);
-    }
-    if (msgid != -1)
-    {
-        msgctl(msgid, IPC_RMID, NULL);
-    }
-    if (sem_id != -1)
-    {
-        semctl(sem_id, 0, IPC_RMID);
-    }
-}
-
-void handle_error(const char *msg, SharedMemory shared_memory, int shm_fd, const char *shm_name, int sem_id, int msgid)
-{
-    perror(msg);
-    cleanup(shared_memory, shm_fd, shm_name, sem_id, msgid);
-    exit(MELTDOWN);
-}
-
-int execute_Configchild_process(const char *shm_name)
-{
-    const char *argv[] = {"./config", shm_name, NULL};
-    execve("./config", (char *const *)argv, NULL);
-    perror("execveConfig");
-    exit(MELTDOWN);
-}
-
 void wait_for_Configchild_process(pid_t pid)
 {
     int status;
@@ -140,7 +170,25 @@ void wait_for_Configchild_process(pid_t pid)
     fflush(stdout);
 }
 
-int create_and_execute_atomo(int num, const char *shm_name, int msgid)
+void init_config_process()
+{
+    // printf("Forking config process...\n");
+    pid_t config_pid = fork();
+    if (config_pid == 0)
+    {
+        execute_Configchild_process();
+    }
+    else if (config_pid > 0)
+    {
+        wait_for_Configchild_process(config_pid);
+    }
+    else
+    {
+        handle_error("Config_fork");
+    }
+}
+
+int create_and_execute_atomo(int num)
 {
     pid_t atomo_pid = fork();
     if (atomo_pid == 0)
@@ -149,31 +197,45 @@ int create_and_execute_atomo(int num, const char *shm_name, int msgid)
         char msgid_str[12];
         snprintf(num_str, sizeof(num_str), "%d", num);
         snprintf(msgid_str, sizeof(msgid_str), "%d", msgid);
-        execl("./atomo", "./atomo", shm_name, num_str, msgid_str, NULL);
-        perror("execl");
-        exit(MELTDOWN);
+
+        // Creazione dell'array di argomenti con const char *
+        const char *argv[] = {"./atomo", shm_name, num_str, msgid_str, NULL};
+
+        // Esecuzione del nuovo processo
+        execve("./atomo", (char *const *)argv, NULL);
+        //perror("execveAtomo");
+        return 1;
     }
     else if (atomo_pid > 0)
     {
-        return 0;
+        return 0;  // Il processo figlio è stato creato con successo
     }
     else
     {
         perror("Atomo_fork");
-        return 1;
+        return 1;  // Fork fallito, segnala errore al processo padre
     }
 }
 
-int create_and_execute_attivatore(const char *shm_name, int msgid)
+
+int create_and_execute_attivatore()
 {
     attivatore_pid = fork();
     if (attivatore_pid == 0)
     {
         char msgid_str[12];
         snprintf(msgid_str, sizeof(msgid_str), "%d", msgid);
-        execl("./attivatore", "./attivatore", shm_name, msgid_str, NULL);
-        perror("execl");
-        exit(MELTDOWN);
+
+        // Creazione dell'array di argomenti con const char *
+        const char *argv[] = {"./attivatore", shm_name, msgid_str, NULL};
+
+        // Esecuzione del nuovo processo
+        execve("./attivatore", (char *const *)argv, NULL);
+
+        // Se execve fallisce
+        perror("execveAttivatore");
+        kill(getppid(), SIGUSR1);
+        exit(0);
     }
     else if (attivatore_pid > 0)
     {
@@ -186,7 +248,7 @@ int create_and_execute_attivatore(const char *shm_name, int msgid)
     }
 }
 
-int create_and_execute_alimentazione(long step, int max_atoms, const char *shm_name, int msgid)
+int create_and_execute_alimentazione(long step, int max_atoms)
 {
     alimentazione_pid = fork();
     if (alimentazione_pid == 0)
@@ -199,9 +261,16 @@ int create_and_execute_alimentazione(long step, int max_atoms, const char *shm_n
         snprintf(max_str, sizeof(max_str), "%d", max_atoms);
         snprintf(msgid_str, sizeof(msgid_str), "%d", msgid);
 
-        execl("./alimentazione", "./alimentazione", step_str, max_str, shm_name, msgid_str, NULL);
-        perror("execl");
-        exit(MELTDOWN);
+        // Creazione dell'array di argomenti con const char *
+        const char *argv[] = {"./alimentazione", step_str, max_str, shm_name, msgid_str, NULL};
+
+        // Esecuzione del nuovo processo
+        execve("./alimentazione", (char *const *)argv, NULL);
+
+        // Se execve fallisce
+        perror("execveAlimentazione");
+        kill(getppid(), SIGUSR1);
+        exit(0);
     }
     else if (alimentazione_pid > 0)
     {
@@ -214,66 +283,67 @@ int create_and_execute_alimentazione(long step, int max_atoms, const char *shm_n
     }
 }
 
-void init_master_shared_memory_and_semaphore(const char *shm_name, int *shm_fd, int *sem_id, SharedMemory *shared_memory)
+int execute_Configchild_process()
 {
-    //printf("Creating and opening shared memory...\n");
-    if (create_and_open_shared_memory(shm_name, shm_fd) != 0)
+    // Creazione dell'array di argomenti con const char *
+    const char *argv[] = {"./config", shm_name, NULL};
+
+    // Esecuzione del nuovo processo
+    execve("./config", (char *const *)argv, NULL);
+
+    // Se execve fallisce
+    perror("execveConfig");
+    kill(getppid(), SIGUSR1);
+    exit(0);
+}
+
+void init_master_shared_memory_and_semaphore()
+{
+    // printf("Creating and opening shared memory...\n");
+    if (create_and_open_shared_memory(shm_name, &shm_fd) != 0)
     {
-        handle_error("create_and_open_shared_memory", *shared_memory, *shm_fd, shm_name, *sem_id, -1);
+        handle_error("create_and_open_shared_memory");
     }
 
-    //printf("Mapping shared memory...\n");
-    *shared_memory = map_shared_memory(*shm_fd);
-    if (shared_memory->shared_config == NULL)
+    // printf("Mapping shared memory...\n");
+    shared_memory = map_shared_memory(shm_fd);
+    if (shared_memory.shared_config == NULL)
     {
-        handle_error("map_shared_memory", *shared_memory, *shm_fd, shm_name, *sem_id, -1);
+        handle_error("map_shared_memory");
     }
 
-    //printf("Creating semaphore...\n");
+    // printf("Creating semaphore...\n");
     key_t sem_key = ftok(shm_name, 'S');
-    *sem_id = create_semaphore(sem_key);
-    if (*sem_id == -1)
+    sem_id = create_semaphore(sem_key);
+    if (sem_id == -1)
     {
-        handle_error("create_semaphore", *shared_memory, *shm_fd, shm_name, *sem_id, -1);
+        handle_error("create_semaphore");
     }
 }
 
-void init_config_process(const char *shm_name, SharedMemory shared_memory, int shm_fd, int sem_id, int msgid)
+void init_message_queue()
 {
-    //printf("Forking config process...\n");
-    pid_t config_pid = fork();
-    if (config_pid == 0)
+    // printf("Creating message queue...\n");
+    msgid = create_message_queue(shm_name);
+    if (msgid == -1)
     {
-        execute_Configchild_process(shm_name);
-    }
-    else if (config_pid > 0)
-    {
-        wait_for_Configchild_process(config_pid);
-    }
-    else
-    {
-        handle_error("Config_fork", shared_memory, shm_fd, shm_name, sem_id, msgid);
+        handle_error("create_message_queue");
     }
 }
 
-void init_message_queue(const char *shm_name, int *msgid, SharedMemory shared_memory, int shm_fd, int sem_id)
+ExitCode master_main_loop()
 {
-    //printf("Creating message queue...\n");
-    *msgid = create_message_queue(shm_name);
-    if (*msgid == -1)
-    {
-        handle_error("create_message_queue", shared_memory, shm_fd, shm_name, sem_id, *msgid);
-    }
-}
-
-ExitCode master_main_loop(int sem_id, SharedMemory shared_memory)
-{
-    sleep(1);
+    sleep(2);
     int counter = 0;
+    int previous_energy = 0;
+    int previous_wastes = 0;
+    int previous_attivatore = 0;
+    int previous_splits = 0;
     while (1)
     {
 
-        if(counter == shared_memory.shared_config->sim_duration){
+        if (counter == shared_memory.shared_config->sim_duration)
+        {
             return TIMEOUT;
         }
 
@@ -281,8 +351,11 @@ ExitCode master_main_loop(int sem_id, SharedMemory shared_memory)
         int current_atoms = *(shared_memory.total_atoms_counter);
         int current_energy = *(shared_memory.shared_free_energy);
         total_current_energy = current_energy;
-        *(shared_memory.shared_free_energy) -= energy_demand; 
+        *(shared_memory.shared_free_energy) -= energy_demand;
         current_energy = *(shared_memory.shared_free_energy);
+        int current_wastes = *(shared_memory.total_wastes);
+        int current_attivatore = *(shared_memory.total_attivatore);
+        int current_splits = *(shared_memory.total_splits);
         semaphore_v(sem_id);
 
         if (current_atoms > (int)(limit.rlim_cur) / 2)
@@ -290,88 +363,110 @@ ExitCode master_main_loop(int sem_id, SharedMemory shared_memory)
             return EXCEDED_PROCESSES;
         }
 
-        if(current_energy > shared_memory.shared_config->energy_explode_threshold){
+        if (current_energy > shared_memory.shared_config->energy_explode_threshold)
+        {
             return EXPLODE;
         }
 
         total_energy_demanded += energy_demand;
-        if(total_energy_demanded > current_energy){
-            printRed("Quantità totale prelevata è: %d\n",total_energy_demanded);
-            printRed("Quantità corrente di energia è: %d",current_energy);
+        if (total_energy_demanded > current_energy)
+        {
+            printRed("Quantità totale prelevata è: %d\n", total_energy_demanded);
+            printRed("Quantità corrente di energia è: %d", current_energy);
             return BLACKOUT;
         }
 
+        int created_energy = current_energy - previous_energy;
+        int real_current_wastes = current_wastes - previous_wastes;
+        int real_current_attivatore = current_attivatore - previous_attivatore;
+        int real_current_splits = current_splits - previous_splits;
+
         printBlue("---------------------\n");
-        printf("Tempo %d\n",counter);
-        printf("Atomi in atto: %d\n", current_atoms);
-        printf("Energia prima del prelievo: %d\n", total_current_energy);
-        printf("Energia disponibile al momento: %d\n", current_energy);
-        printf("Energia prelevata al momento: %d\n", total_energy_demanded);
+        printGreen("Tempo %d\n", counter);
+        printf("Atomi in esecuzione: %d\n", current_atoms);
+        printf("Numero di attivazioni attivatore al tempo %d: %d\n", counter, real_current_attivatore);
+        printf("Numero totale di attivazioni attivatore: %d\n", current_attivatore);
+        printf("Numero di scissioni al tempo %d: %d\n", counter, real_current_splits);
+        printf("Numero totale di scissioni: %d\n", current_splits);
+        //printf("Energia prima del prelievo: %d\n", total_current_energy);
+        printf("Energia creata al tempo %d: %d\n", counter,created_energy);
+        printf("Energia totale disponibile: %d\n", current_energy);
+        printf("Energia consumata al tempo %d: %d\n",counter, energy_demand);
+        printf("Energia totale consumata: %d\n", total_energy_demanded);
+        printf("Scorie prodotte al tempo %d: %d\n", counter, real_current_wastes);
+        printf("Scorie totali prodotte: %d\n", current_wastes);
         fflush(stdout);
 
+        previous_splits = current_splits;
+        previous_attivatore = current_attivatore;
+        previous_wastes = current_wastes;
+        previous_energy = current_energy; 
         counter += 1;
         sleep(1);
     }
     return PROGRAM_ERROR;
 }
 
-const char* get_exit_code_description(ExitCode code) {
-    switch (code) {
-        case TIMEOUT:
-            return "TIMEOUT";
-        case EXPLODE:
-            return "EXPLODE";
-        case BLACKOUT:
-            return "BLACKOUT";
-        case MELTDOWN:
-            return "MELTDOWN";
-        case EXCEDED_PROCESSES:
-            return "EXCEDED_PROCESSES";
-        default:
-            return "PROGRAM_ERROR";
+const char *get_exit_code_description(ExitCode code)
+{
+    switch (code)
+    {
+    case TIMEOUT:
+        return "TIMEOUT";
+    case EXPLODE:
+        return "EXPLODE";
+    case BLACKOUT:
+        return "BLACKOUT";
+    case MELTDOWN:
+        return "MELTDOWN";
+    case EXCEDED_PROCESSES:
+        return "EXCEDED_PROCESSES";
+    default:
+        return "PROGRAM_ERROR";
     }
 }
 
-void set_termination_flag(SharedMemory *shared){
-   *(shared->toEnd) = 1;
+void set_termination_flag()
+{
+    *(shared_memory.toEnd) = 1;
 }
 
 int main()
 {
 
-    if (getrlimit(RLIMIT_NPROC, &limit) == 0) {
+    signal(SIGUSR1, handle_sigusr1);
+    signal(SIGINT, handle_sigint); 
+
+    if (getrlimit(RLIMIT_NPROC, &limit) == 0)
+    {
         printRed("\nATTENZIONE!\nNumero massimo di processi per l'utente: %d", (int)(limit.rlim_cur) / 2);
-    } else {
+    }
+    else
+    {
         perror("Errore nel recuperare il limite massimo di processi");
         return 1;
     }
-
-    const char *shm_name = "/wConfig";
-    int shm_fd = -1;
-    int sem_id = -1;
-    int msgid = -1;
-    SharedMemory shared_memory = {NULL, NULL, NULL, NULL, NULL};
 
     printYellow("\n\n=======================\n");
     printYellow("==========INIT=========\n");
     printYellow("=======================\n");
 
-    init_master_shared_memory_and_semaphore(shm_name, &shm_fd, &sem_id, &shared_memory);
+    init_master_shared_memory_and_semaphore();
 
-    init_config_process(shm_name, shared_memory, shm_fd, sem_id, msgid);
+    init_config_process();
 
-    init_message_queue(shm_name, &msgid, shared_memory, shm_fd, sem_id);
+    init_message_queue();
 
     printBlue("Activating attivatore...\n");
-    if (create_and_execute_attivatore(shm_name, msgid) != 0)
+    if (create_and_execute_attivatore() != 0)
     {
-        handle_error("create_and_execute_attivatore", shared_memory, shm_fd, shm_name, sem_id, msgid);
+        handle_error("create_and_execute_attivatore");
     }
 
     printBlue("Activating alimentazione...\n");
-    if (create_and_execute_alimentazione(shared_memory.shared_config->step_alimentazione, shared_memory.shared_config->n_atom_max, shm_name, msgid) != 0)
+    if (create_and_execute_alimentazione(shared_memory.shared_config->step_alimentazione, shared_memory.shared_config->n_atom_max) != 0)
     {
-        handle_error("create_and_execute_alimentazione", shared_memory, shm_fd, shm_name, sem_id, msgid);
+        handle_error("create_and_execute_alimentazione");
     }
 
     printBlue("Getting energy demand...\n");
@@ -385,32 +480,39 @@ int main()
 
     printBlue("Activating atomi...\n");
     srand(time(NULL));
+
     for (int i = 0; i < shared_memory.shared_config->n_atomi_init; i++)
     {
         int num = rand() % shared_memory.shared_config->n_atom_max + 1;
-        if (create_and_execute_atomo(num, shm_name, msgid) != 0)
+        if (create_and_execute_atomo(num) != 0)
         {
-            handle_error("create_and_execute_atomo", shared_memory, shm_fd, shm_name, sem_id, msgid);
+            cleanup();
+            kill(getppid(), SIGUSR1);
+            break;
         }
     }
 
-    ExitCode exit_code = master_main_loop(sem_id, shared_memory); 
+    ExitCode exit_code = master_main_loop();
     kill(alimentazione_pid, SIGTERM);
     kill(attivatore_pid, SIGTERM);
-    
-    set_termination_flag(&shared_memory);
 
-    printGreen("\nTOTALE DI ATOMI CREATI: %d\n", *(int *)shared_memory.total_atoms);
+    set_termination_flag();
+
+    printGreen("\nTOTALE ATOMI CREATI: %d\n", *(int *)shared_memory.total_atoms);
+    printGreen("TOTALE ATTIVAZIONI EFFETTUATE: %d\n", *(int *)shared_memory.total_attivatore);
+    printGreen("TOTALE SCISSIONI AVVENUTE: %d\n", *(int *)shared_memory.total_splits);
     printGreen("TOTALE ENERGIA PRELEVATA: %d\n", total_energy_demanded);
-    printGreen("TOTALE ENERGIA LIBERATA: %d\n\n", *(int *)shared_memory.shared_free_energy);
+    printGreen("TOTALE ENERGIA LIBERATA: %d\n", *(int *)shared_memory.shared_free_energy);
+    printGreen("TOTALE SCORIE CREATE: %d\n\n", *(int *)shared_memory.total_wastes);
 
-    while (wait(NULL) > 0);
-    printGreen("\nProgram exited with code: %d, meaning %s\n\n",exit_code,get_exit_code_description(exit_code));
+    while (wait(NULL) > 0)
+        ;
+    printGreen("\nProgram exited with code: %d, meaning %s\n\n", exit_code, get_exit_code_description(exit_code));
 
     printYellow("Cleaning up all processes...\n");
     fflush(stdout);
     sleep(1);
-    cleanup(shared_memory, shm_fd, shm_name, sem_id, msgid);
+    cleanup();
     printGreen("DONE!!\n");
     fflush(stdout);
     return 0;

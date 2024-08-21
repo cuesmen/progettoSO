@@ -28,31 +28,35 @@ typedef enum {
     PROGRAM_ERROR = 5,
 } ExitCode;
 
+// Funzioni per segnali
+void handle_sigusr1(int sig);
+
 // Funzioni IPC
 int create_semaphore(key_t sem_key);
 int create_and_open_shared_memory(const char *shm_name, int *shm_fd);
 SharedMemory map_shared_memory(int shm_fd);
 int create_message_queue(const char *shm_name);
 
-
 // Funzioni di gestione dei processi
-int execute_Configchild_process(const char *shm_name);
-int create_and_execute_atomo(int num, const char *shm_name, int msgid);
-int create_and_execute_attivatore(const char *shm_name, int msgid);
-int create_and_execute_alimentazione(long step, int max_atoms, const char *shm_name, int msgid);
+int execute_Configchild_process();
+int create_and_execute_atomo(int num);
+int create_and_execute_attivatore();
+int create_and_execute_alimentazione(long step, int max_atoms);
 void wait_for_Configchild_process(pid_t pid);
 
 // Funzioni di inizializzazione
-void init_master_shared_memory_and_semaphore(const char *shm_name, int *shm_fd, int *sem_id, SharedMemory *shared_memory);
-void init_config_process(const char *shm_name, SharedMemory shared_memory, int shm_fd, int sem_id, int msgid);
-void init_message_queue(const char *shm_name, int *msgid, SharedMemory shared_memory, int shm_fd, int sem_id);
+void init_master_shared_memory_and_semaphore();
+void init_config_process();
+void init_message_queue();
 
 // Funzioni di ciclo principale
-ExitCode master_main_loop(int sem_id, SharedMemory shared_memory);
+ExitCode master_main_loop();
 
 // Cleanup e gestione errori
-void cleanup(SharedMemory shared_memory, int shm_fd, const char *shm_name, int sem_id, int msgid);
-void handle_error(const char *msg, SharedMemory shared_memory, int shm_fd, const char *shm_name, int sem_id, int msgid);
+void cleanup();
+void handle_error(const char *msg);
 const char* get_exit_code_description(ExitCode code);
+
+void set_termination_flag();
 
 #endif // MASTER_H

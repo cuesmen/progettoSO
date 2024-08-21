@@ -41,7 +41,7 @@ int map_atomo_shared_memory(const char *shm_name, SharedMemory **shared_memory_p
         return -1;
     }
 
-    void *shared_area = mmap(NULL, sizeof(Config) + 4 * sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    void *shared_area = mmap(NULL, sizeof(Config) + MEMSIZE * sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
     if (shared_area == MAP_FAILED) {
         //printRed("Errore: impossibile mappare l'area di memoria condivisa\n");
         close(shm_fd);
@@ -51,7 +51,7 @@ int map_atomo_shared_memory(const char *shm_name, SharedMemory **shared_memory_p
     *shared_memory_ptr = (SharedMemory *)malloc(sizeof(SharedMemory));
     if (*shared_memory_ptr == NULL) {
         //printRed("Errore: malloc fallito durante la mappatura della memoria condivisa\n");
-        munmap(shared_area, sizeof(Config) + 4 * sizeof(int));
+        munmap(shared_area, sizeof(Config) + MEMSIZE * sizeof(int));
         close(shm_fd);
         return -1;
     }
@@ -61,6 +61,9 @@ int map_atomo_shared_memory(const char *shm_name, SharedMemory **shared_memory_p
     (*shared_memory_ptr)->total_atoms_counter = (int *)((char *)shared_area + sizeof(Config) + sizeof(int));
     (*shared_memory_ptr)->total_atoms = (int *)((char *)shared_area + sizeof(Config) + 2 * sizeof(int));
     (*shared_memory_ptr)->toEnd = (int *)((char *)shared_area + sizeof(Config) + 3 * sizeof(int));
+    (*shared_memory_ptr)->total_wastes = (int *)((char *)shared_area + sizeof(Config) + 4 * sizeof(int));
+    (*shared_memory_ptr)->total_attivatore = (int *)((char *)shared_area + sizeof(Config) + 5 * sizeof(int));
+    (*shared_memory_ptr)->total_splits = (int *)((char *)shared_area + sizeof(Config) + 6 * sizeof(int));
 
     close(shm_fd);
     return 0;
@@ -74,7 +77,7 @@ void init_signals() {
 
 void init_shared_memory_and_semaphore(const char *shm_name, int *sem_id) {
     if (map_atomo_shared_memory(shm_name, &shared_memory) != 0) {
-        handleAtomo_error("Errore nella mappatura della memoria condivisa", shm_name, -1, -1);
+        handleAtomo_error("Errore nella mappatura della memoria condivisa",-1);
         exit(0);
     }
 
@@ -104,9 +107,6 @@ void atom_main_loop(int sem_id, int msgid) {
     struct msg_buffer message;
 
     while (1) {
-
-
-
         printBlueDebug(debugMode, "Atomo %d: In attesa di un messaggio...\n", num);
         sleep(atomSleep);
         if (msgrcv(msgid, &message, sizeof(message.msg_text), 1, 0) == -1) {
@@ -150,6 +150,11 @@ void split_and_create_new_atomo(const char *shm_name, int sem_id, int msgid) {
             perror("execve");
             exit(EXIT_FAILURE);
         } else if (atomo_pid > 0) { 
+
+            semaphore_p(sem_id);
+                *(shared_memory->total_splits) += 1;
+            semaphore_v(sem_id);
+
             num = num - child_num;
             printBlueDebug(debugMode, "Ciao, sono il padre dopo la scissione, num = %d\n", num);
             freeEnergy(num, child_num, sem_id);
@@ -157,6 +162,11 @@ void split_and_create_new_atomo(const char *shm_name, int sem_id, int msgid) {
             printRed("Errore: impossibile creare il processo figlio per lo split\n");
         }
     } else {
+
+        semaphore_p(sem_id);
+            *(shared_memory->total_wastes) += 1;
+        semaphore_v(sem_id);
+
         printYellowDebug(debugMode, "Non posso scindermi ulteriormente, num = %d\n", num);
         terminate_atomo(sem_id);
     }
@@ -193,28 +203,16 @@ void terminate_atomo(int sem_id) {
     }
     semaphore_v(sem_id);
 
-    munmap(shared_memory->shared_config, sizeof(Config) + 3 * sizeof(int));
+    munmap(shared_memory->shared_config, sizeof(Config) + MEMSIZE * sizeof(int));
     free(shared_memory);
     printGreenDebug(debugMode, "Atomo %d: Terminato correttamente\n", num);
     exit(0);
 }
 
-void handleAtomo_error(const char *msg, const char *shm_name, int sem_id, int msgid) {
+void handleAtomo_error(const char *msg, int sem_id) {
     printRedDebug(0, "%s\n", msg);
-    cleanup_ipc_resources(shm_name, sem_id, msgid);
+    terminate_atomo(sem_id);
     exit(EXIT_FAILURE);
-}
-
-void cleanup_ipc_resources(const char *shm_name, int sem_id, int msgid) {
-    if (shm_name != NULL) {
-        shm_unlink(shm_name);
-    }
-    if (sem_id != -1) {
-        semctl(sem_id, 0, IPC_RMID);
-    }
-    if (msgid != -1) {
-        msgctl(msgid, IPC_RMID, NULL);
-    }
 }
 
 int main(int argc, char *argv[]) {

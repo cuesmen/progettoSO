@@ -21,7 +21,6 @@ void create_atomo_from_alimentazione(int num, const char *shm_name, int msgid)
         snprintf(msgid_str, sizeof(msgid_str), "%d", msgid);
 
         execl("./atomo", "./atomo", shm_name, num_str, msgid_str, NULL);
-        perror("execl");
         exit(EXIT_FAILURE);
     }
     else if (atomo_pid < 0)
@@ -67,6 +66,6 @@ int main(int argc, char *argv[])
         create_atomo_from_alimentazione(num, shm_name, msgid);
     }
 
-    printf("Processo alimentazione terminato.\n");
+
     return 0;
 }
