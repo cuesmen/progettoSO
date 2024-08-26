@@ -46,6 +46,7 @@ struct atomo_msg_buffer  {
     long msg_type;
     int energia_ricevuta;
     int energia_da_ridurre;
+    long atom_pid;
 };
 
 

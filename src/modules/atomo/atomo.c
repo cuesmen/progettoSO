@@ -264,6 +264,7 @@ void freeEnergy(int n1, int n2, int sem_id)
         struct atomo_msg_buffer message;
         message.msg_type = 1; // Tipo di messaggio per l'invio all'inibitore
         message.energia_ricevuta = toFree;
+        message.atom_pid = (long)getpid();
 
         printRedDebug(debugModeInibitore,"freeEnergy: Inviando energia %d all'inibitore tramite msgid %d.\n", toFree, msgid);
 
@@ -275,7 +276,7 @@ void freeEnergy(int n1, int n2, int sem_id)
         }
 
         // Attendi la risposta dall'inibitore
-        if (msgrcv(msgid, &message, sizeof(message) - sizeof(long), 2, 0) == -1)
+        if (msgrcv(msgid, &message, sizeof(message) - sizeof(long), message.atom_pid, 0) == -1)
         {
             printRed("freeEnergy: Errore nella ricezione della risposta dall'inibitore. msgrcv ha restituito -1.\n");
             return;

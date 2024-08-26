@@ -1,20 +1,20 @@
 #include "inibitore.h"
 
-static int pipe_fd;               // File descriptor per la pipe
 volatile sig_atomic_t active = 1; // Flag per attivazione/disattivazione inibitore
 int debug = 1;
 static SharedMemory *shared_memory = NULL;
 int sem_id;
+int msgid;
 
 void handle_signal(int sig)
 {
     if (sig == SIGUSR1)
     {
         active = 1; // Riattiva l'inibitore
-         semaphore_p(sem_id);
+        semaphore_p(sem_id);
         *(shared_memory->inibitore_attivo) = 1;
         semaphore_v(sem_id);
-        printGreenDebug(debug,"Inibitore: Riattivato (SIGUSR1 ricevuto).\n");
+        printGreenDebug(debug, "Inibitore: Riattivato (SIGUSR1 ricevuto).\n");
     }
     else if (sig == SIGUSR2)
     {
@@ -22,20 +22,30 @@ void handle_signal(int sig)
         semaphore_p(sem_id);
         *(shared_memory->inibitore_attivo) = 0;
         semaphore_v(sem_id);
-        printGreenDebug(debug,"Inibitore: Disattivato (SIGUSR2 ricevuto).\n");
+        printGreenDebug(debug, "Inibitore: Disattivato (SIGUSR2 ricevuto).\n");
     }
     else if (sig == SIGTERM || sig == SIGINT)
     {
-        printGreenDebug(debug,"Inibitore: Terminazione in corso (SIGTERM o SIGINT ricevuto).\n");
+        printGreenDebug(debug, "Inibitore: Terminazione in corso (SIGTERM o SIGINT ricevuto).\n");
 
-        semaphore_p(sem_id);
-        *(shared_memory->inibitore_attivo) = 0;
-        semaphore_v(sem_id);
+        //semaphore_p(sem_id);
+        //*(shared_memory->inibitore_attivo) = 0;
+        //semaphore_v(sem_id);
 
-        close(pipe_fd); // Chiude la pipe
         munmap(shared_memory->shared_config, sizeof(Config) + MEMSIZE * sizeof(int));
         free(shared_memory);
-        exit(0);        // Termina il processo
+
+
+        if (msgctl(msgid, IPC_RMID, NULL) == -1)
+        {
+            perror("Errore nella rimozione della coda di messaggi");
+        }
+        else
+        {
+            printGreenDebug(debug, "Inibitore: Coda di messaggi rimossa correttamente.\n");
+        }
+
+        exit(0); // Termina il processo
     }
 }
 
@@ -50,7 +60,7 @@ void setup_signal_handlers()
     sigaction(SIGUSR2, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
     sigaction(SIGINT, &sa, NULL);
-    printGreenDebug(debug,"Inibitore: Gestori di segnali configurati.\n");
+    printGreenDebug(debug, "Inibitore: Gestori di segnali configurati.\n");
 }
 
 int get_semaphore_id(const char *shm_name)
@@ -126,60 +136,57 @@ void init_shared_memory_and_semaphore(const char *shm_name, int *sem_id)
         exit(EXIT_FAILURE);
     }
 
-    printGreenDebug(debug,"Inibitore: Memoria condivisa e semaforo inizializzati correttamente.\n");
+    printGreenDebug(debug, "Inibitore: Memoria condivisa e semaforo inizializzati correttamente.\n");
 }
-
-
 
 void inibitore_main_loop(int msgid)
 {
-    printGreenDebug(debug,"Inibitore: Avvio del loop principale.\n");
-    struct atomo_msg_buffer message; 
+    printGreenDebug(debug, "Inibitore: Avvio del loop principale.\n");
+    struct atomo_msg_buffer message;
     while (1)
     {
 
-        if(!active){
+        if (!active)
+        {
             continue;
         }
 
-
         if (msgrcv(msgid, &message, sizeof(message) - sizeof(long), 1, 0) > 0)
         {
-            printGreenDebug(debug,"Inibitore: Messaggio ricevuto. Energia=%d\n", message.energia_ricevuta);
-            //if (active)
+            printGreenDebug(debug, "Inibitore: Messaggio ricevuto. Energia=%d\n", message.energia_ricevuta);
+            // if (active)
             //{
             message.energia_da_ridurre = calcola_energia_da_ridurre(message.energia_ricevuta);
             //}
-            //else
+            // else
             //{
             //    message.energia_da_ridurre = 0;
             //    printGreenDebug(debug,"Inibitore: Inattivo. Nessuna energia ridotta.\n");
             //}
 
             // Invia la risposta all'atomo
-            message.msg_type = 2; // Tipo di messaggio per la risposta
+            message.msg_type = message.atom_pid; // Tipo di messaggio per la risposta
             if (msgsnd(msgid, &message, sizeof(message) - sizeof(long), 0) == -1)
             {
                 perror("Errore nella scrittura nella coda di messaggi");
             }
             else
             {
-                printGreenDebug(debug,"Inibitore: Risposta inviata. Energia ridotta=%d\n", message.energia_da_ridurre);
+                printGreenDebug(debug, "Inibitore: Risposta inviata. Energia ridotta=%d\n", message.energia_da_ridurre);
             }
         }
     }
 }
 
-
 /*
  *
  * Questo metodo riduce l'energia ricevuta in base alla situazione attuale
  * del sistema, considerando l'energia attualmente disponibile e la soglia
- * di esplosione dell'energia. Se l'energia potenziale (energia attuale + 
- * energia ricevuta) supera la soglia critica, l'energia da ridurre viene 
- * adattata per evitare di raggiungere o superare la soglia, prevenendo così 
+ * di esplosione dell'energia. Se l'energia potenziale (energia attuale +
+ * energia ricevuta) supera la soglia critica, l'energia da ridurre viene
+ * adattata per evitare di raggiungere o superare la soglia, prevenendo così
  * un blackout. In caso contrario, viene applicata una riduzione fissa del 20%.
- * 
+ *
  */
 int calcola_energia_da_ridurre(int energia_ricevuta)
 {
@@ -195,7 +202,8 @@ int calcola_energia_da_ridurre(int energia_ricevuta)
     {
         int energia_da_ridurre = energia_ricevuta;
 
-        if (energia_da_ridurre <= 0) {
+        if (energia_da_ridurre <= 0)
+        {
             energia_da_ridurre = 0;
         }
 
@@ -213,8 +221,6 @@ int calcola_energia_da_ridurre(int energia_ricevuta)
     }
 }
 
-
-
 int main(int argc, char *argv[])
 {
     if (argc < 2)
@@ -228,13 +234,13 @@ int main(int argc, char *argv[])
     const char *shm_name = argv[1];
 
     // Creazione della coda di messaggi
-    int msgid = msgget(MSG_KEY, 0666 | IPC_CREAT);
+    msgid = msgget(MSG_KEY, 0666 | IPC_CREAT);
     if (msgid == -1)
     {
         perror("Errore nella creazione della coda di messaggi");
         return 1;
     }
-    printGreenDebug(debug,"Inibitore: Coda di messaggi creata con msgid=%d.\n", msgid);
+    printGreenDebug(debug, "Inibitore: Coda di messaggi creata con msgid=%d.\n", msgid);
 
     // Inizializza memoria condivisa e semaforo
     init_shared_memory_and_semaphore(shm_name, &sem_id);
@@ -248,7 +254,7 @@ int main(int argc, char *argv[])
 
     // Pulizia e rimozione della coda di messaggi
     msgctl(msgid, IPC_RMID, NULL);
-    printGreenDebug(debug,"Inibitore: Coda di messaggi rimossa e terminazione completata.\n");
+    printGreenDebug(debug, "Inibitore: Coda di messaggi rimossa e terminazione completata.\n");
 
     return 0;
 }
