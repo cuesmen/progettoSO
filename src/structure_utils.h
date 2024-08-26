@@ -1,7 +1,7 @@
 #ifndef STRUCTURE_UTILS_H
 #define STRUCTURE_UTILS_H
 
-#define MEMSIZE 9
+#define MEMSIZE 10
 #define MSG_KEY 1234 
 
 // Struttura che contiene i parametri di configurazione
@@ -33,6 +33,7 @@ typedef struct {
     int *total_splits;
     int *total_inibitore_energy;
     int *inibitore_attivo; 
+    int *total_wastes_by_inibitore;
 } SharedMemory;
 
 

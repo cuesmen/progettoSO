@@ -3,7 +3,7 @@
 static int num;
 static SharedMemory *shared_memory = NULL;
 int debugMode = 0;
-int debugModeInibitore = 1;
+int debugModeInibitore = 0;
 float atomSleep = 0;
 int min_n_atomico;
 const char *shm_name;
@@ -82,6 +82,7 @@ int map_atomo_shared_memory(const char *shm_name, SharedMemory **shared_memory_p
     (*shared_memory_ptr)->total_splits = (int *)((char *)shared_area + sizeof(Config) + 6 * sizeof(int));
     (*shared_memory_ptr)->total_inibitore_energy = (int *)((char *)shared_area + sizeof(Config) + 7 * sizeof(int));
     (*shared_memory_ptr)->inibitore_attivo = (int *)((char *)shared_area + sizeof(Config) + 8 * sizeof(int));
+    (*shared_memory_ptr)->total_wastes_by_inibitore = (int *)((char *)shared_area + sizeof(Config) + 9 * sizeof(int));
 
     close(shm_fd);
     return 0;
@@ -154,7 +155,6 @@ void atom_main_loop(int sem_id, int msgid)
             }
             else
             {
-                // printRed("Errore durante la ricezione del messaggio\n");
                 break;
             }
         }
@@ -173,9 +173,62 @@ void atom_main_loop(int sem_id, int msgid)
     terminate_atomo(sem_id);
 }
 
+int isInibitoreTrue(int sem_id)
+{
+    semaphore_p(sem_id);
+    int inibitore_attivo = *(shared_memory->inibitore_attivo);
+    semaphore_v(sem_id);
+    if (inibitore_attivo == 1)
+    {
+        int msgid = msgget(MSG_KEY, 0666);
+        if (msgid == -1)
+        {
+            printRedDebug(debugModeInibitore,"isInibitoreTrue: Errore nella creazione della coda di messaggi. msgget ha restituito -1.\n");
+            return -1;
+        }
+
+        struct atomo_msg_buffer message;
+        message.msg_type = 3;         // Tipo di messaggio per l'invio all'inibitore
+        message.energia_ricevuta = 0; // Non è necessario inviare energia, solo una richiesta
+        message.atom_pid = (long)getpid();
+
+        printRedDebug(debugModeInibitore, "isInibitoreTrue: Inviando richiesta all'inibitore tramite msgid %d.\n", msgid);
+
+        // Invia il messaggio all'inibitore
+        if (msgsnd(msgid, &message, sizeof(message) - sizeof(long), 0) == -1)
+        {
+            printRedDebug(debugModeInibitore,"isInibitoreTrue: Errore nell'invio del messaggio all'inibitore. msgsnd ha restituito -1.\n");
+            return -1;
+        }
+
+        // Attendi la risposta dall'inibitore
+         if (msgrcv(msgid, &message, sizeof(message) - sizeof(long), getpid(), 0) == -1)
+        {
+            printRedDebug(debugModeInibitore,"isInibitoreTrue: Errore nella ricezione della risposta dall'inibitore. msgrcv ha restituito -1.\n");
+            return -1;
+        }
+
+        int toReturn = message.energia_da_ridurre;
+
+        printRedDebug(debugModeInibitore, "isInibitoreTrue: Stato ricevuto dall'inibitore: %d\n", toReturn);
+
+        if(toReturn == 0){
+            semaphore_p(sem_id);
+            *(shared_memory->total_wastes_by_inibitore) += 1;
+            semaphore_v(sem_id);
+        }
+
+        return toReturn;
+    }
+    else
+    {
+        return 1;
+    }
+}
+
 void split_and_create_new_atomo(const char *shm_name, int sem_id, int msgid)
 {
-    if (num > min_n_atomico)
+    if (num > min_n_atomico && isInibitoreTrue(sem_id) == 1)
     {
         srand(time(NULL) ^ (getpid() << 16));
         int child_num = (rand() % (num - 1)) + 1;
@@ -208,7 +261,7 @@ void split_and_create_new_atomo(const char *shm_name, int sem_id, int msgid)
         }
         else
         {
-            printRedDebug(debugMode,"Errore: impossibile creare il processo figlio per lo split\n");
+            printRedDebug(debugMode, "Errore: impossibile creare il processo figlio per lo split\n");
         }
     }
     else
@@ -229,21 +282,21 @@ void freeEnergy(int n1, int n2, int sem_id)
 
     if (n1 == 1 || n2 == 1)
     {
-        printRedDebug(debugModeInibitore,"freeEnergy: n1=%d o n2=%d è uguale a 1, non viene liberata energia.\n", n1, n2);
+        printRedDebug(debugModeInibitore, "freeEnergy: n1=%d o n2=%d è uguale a 1, non viene liberata energia.\n", n1, n2);
         return;
     }
 
     if (n1 == n2)
     {
         toFree = (n1 * n2) - n1;
-        printRedDebug(debugModeInibitore,"freeEnergy: n1=%d è uguale a n2=%d, energia calcolata da liberare: %d\n", n1, n2, toFree);
+        printRedDebug(debugModeInibitore, "freeEnergy: n1=%d è uguale a n2=%d, energia calcolata da liberare: %d\n", n1, n2, toFree);
     }
     else
     {
         int mulBuf = n1 * n2;
         int max = getMax(n1, n2);
         toFree = mulBuf - max;
-        printRedDebug(debugModeInibitore,"freeEnergy: n1=%d, n2=%d, max=%d, energia calcolata da liberare: %d\n", n1, n2, max, toFree);
+        printRedDebug(debugModeInibitore, "freeEnergy: n1=%d, n2=%d, max=%d, energia calcolata da liberare: %d\n", n1, n2, max, toFree);
     }
 
     semaphore_p(sem_id);
@@ -257,7 +310,7 @@ void freeEnergy(int n1, int n2, int sem_id)
         int msgid = msgget(MSG_KEY, 0666);
         if (msgid == -1)
         {
-            printRed("freeEnergy: Errore nella creazione della coda di messaggi. msgget ha restituito -1.\n");
+            printRedDebug(debugModeInibitore, "freeEnergy: Errore nella creazione della coda di messaggi. msgget ha restituito -1.\n");
             return;
         }
 
@@ -266,38 +319,33 @@ void freeEnergy(int n1, int n2, int sem_id)
         message.energia_ricevuta = toFree;
         message.atom_pid = (long)getpid();
 
-        printRedDebug(debugModeInibitore,"freeEnergy: Inviando energia %d all'inibitore tramite msgid %d.\n", toFree, msgid);
+        printRedDebug(debugModeInibitore, "freeEnergy: Inviando energia %d all'inibitore tramite msgid %d.\n", toFree, msgid);
 
         // Invia il messaggio all'inibitore
         if (msgsnd(msgid, &message, sizeof(message) - sizeof(long), 0) == -1)
         {
-            printRed("freeEnergy: Errore nell'invio del messaggio all'inibitore. msgsnd ha restituito -1.\n");
+            printRedDebug(debugModeInibitore, "freeEnergy: Errore nell'invio del messaggio all'inibitore. msgsnd ha restituito -1.\n");
             return;
         }
 
         // Attendi la risposta dall'inibitore
         if (msgrcv(msgid, &message, sizeof(message) - sizeof(long), message.atom_pid, 0) == -1)
         {
-            printRed("freeEnergy: Errore nella ricezione della risposta dall'inibitore. msgrcv ha restituito -1.\n");
+            printRedDebug(debugModeInibitore,"freeEnergy: Errore nella ricezione della risposta dall'inibitore. msgrcv ha restituito -1.\n");
             return;
         }
 
-        printRedDebug(debugModeInibitore,"freeEnergy: Energia ricevuta dall'inibitore per riduzione: %d\n", message.energia_da_ridurre);
+        printRedDebug(debugModeInibitore, "freeEnergy: Energia ricevuta dall'inibitore per riduzione: %d\n", message.energia_da_ridurre);
 
         daRidurre = message.energia_da_ridurre;
         toFree -= daRidurre;
-
-        if(toFree == 0){
-            printf("suca\n");
-            fflush(stdout);
-        }
     }
 
     semaphore_p(sem_id);
     *(shared_memory->shared_free_energy) += toFree;
     *(shared_memory->total_inibitore_energy) += daRidurre;
     semaphore_v(sem_id);
-    printGreenDebug(debugModeInibitore,"Energia liberata: %d\n", toFree);
+    printGreenDebug(debugModeInibitore, "Energia liberata: %d\n", toFree);
 }
 
 int getMax(int n1, int n2)

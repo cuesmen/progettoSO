@@ -14,6 +14,7 @@
 #include <sys/mman.h>
 #include <sys/msg.h>
 #include <errno.h>
+#include <time.h> 
 
 #include "../../log_utils.h"
 #include "../../structure_utils.h"

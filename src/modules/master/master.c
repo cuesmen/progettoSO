@@ -14,7 +14,7 @@ int shm_fd = -1;
 int sem_id = -1;
 int msgid = -1;
 const char *shm_name = "/wConfig";
-SharedMemory shared_memory = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+SharedMemory shared_memory = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
 
 int createdInibitore = 0;
 
@@ -165,6 +165,7 @@ SharedMemory map_shared_memory(int shm_fd)
     shared_memory.total_splits = (int *)((char *)shared_area + sizeof(Config) + sizeof(int) * 6);
     shared_memory.total_inibitore_energy = (int *)((char *)shared_area + sizeof(Config) + sizeof(int) * 7);
     shared_memory.inibitore_attivo = (int *)((char *)shared_area + sizeof(Config) + sizeof(int) * 8);
+    shared_memory.total_wastes_by_inibitore = (int *)((char *)shared_area + sizeof(Config) + sizeof(int) * 9);
 
     memset(shared_memory.shared_config, 0, sizeof(Config));
     *(shared_memory.shared_free_energy) = 0;
@@ -176,6 +177,7 @@ SharedMemory map_shared_memory(int shm_fd)
     *(shared_memory.total_splits) = 0;
     *(shared_memory.total_inibitore_energy) = 0;
     *(shared_memory.inibitore_attivo) = 0;
+    *(shared_memory.total_wastes_by_inibitore) = 0;
 
     return shared_memory;
 }
@@ -419,8 +421,9 @@ ExitCode master_main_loop()
         int current_attivatore = *(shared_memory.total_attivatore);
         int current_splits = *(shared_memory.total_splits);
         int total_inibitore = *(shared_memory.total_inibitore_energy);
+        int total_inibitore_wastes = *(shared_memory.total_wastes_by_inibitore);
 
-        int deb = *(shared_memory.inibitore_attivo);
+        int active_inibitore = *(shared_memory.inibitore_attivo);
 
         semaphore_v(sem_id);
 
@@ -461,8 +464,9 @@ ExitCode master_main_loop()
         printf("Energia totale consumata: %d\n", total_energy_demanded);
         printf("Scorie prodotte al tempo %d: %d\n", counter, real_current_wastes);
         printf("Scorie totali prodotte: %d\n", current_wastes);
+        printf("Inibitore Attivo? %d\n", active_inibitore);
         printf("Energia assorbita da inibitore: %d\n", total_inibitore);
-        printf("Attivo? %d\n", deb);
+        printf("Scorie create da inibitore: %d\n", total_inibitore_wastes);
         fflush(stdout);
 
         previous_splits = current_splits;

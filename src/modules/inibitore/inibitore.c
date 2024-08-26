@@ -1,7 +1,7 @@
 #include "inibitore.h"
 
 volatile sig_atomic_t active = 1; // Flag per attivazione/disattivazione inibitore
-int debug = 1;
+int debug = 0;
 static SharedMemory *shared_memory = NULL;
 int sem_id;
 int msgid;
@@ -28,13 +28,12 @@ void handle_signal(int sig)
     {
         printGreenDebug(debug, "Inibitore: Terminazione in corso (SIGTERM o SIGINT ricevuto).\n");
 
-        //semaphore_p(sem_id);
+        // semaphore_p(sem_id);
         //*(shared_memory->inibitore_attivo) = 0;
-        //semaphore_v(sem_id);
+        // semaphore_v(sem_id);
 
         munmap(shared_memory->shared_config, sizeof(Config) + MEMSIZE * sizeof(int));
         free(shared_memory);
-
 
         if (msgctl(msgid, IPC_RMID, NULL) == -1)
         {
@@ -139,6 +138,19 @@ void init_shared_memory_and_semaphore(const char *shm_name, int *sem_id)
     printGreenDebug(debug, "Inibitore: Memoria condivisa e semaforo inizializzati correttamente.\n");
 }
 
+int getRandomReturnValue()
+{
+    int random_value = rand() % 10; // Genera un numero da 0 a 9
+    if (random_value < 1)
+    { // 0 (10% di probabilità)
+        return 0;
+    }
+    else
+    { // 1, 2, 3, 4, 5, 6, 7, 8, 9 (80% di probabilità)
+        return 1;
+    }
+}
+
 void inibitore_main_loop(int msgid)
 {
     printGreenDebug(debug, "Inibitore: Avvio del loop principale.\n");
@@ -151,21 +163,14 @@ void inibitore_main_loop(int msgid)
             continue;
         }
 
-        if (msgrcv(msgid, &message, sizeof(message) - sizeof(long), 1, 0) > 0)
+        // Gestisce messaggi di tipo 1 (riduzione energia)
+        if (msgrcv(msgid, &message, sizeof(message) - sizeof(long), 1, IPC_NOWAIT) > 0)
         {
             printGreenDebug(debug, "Inibitore: Messaggio ricevuto. Energia=%d\n", message.energia_ricevuta);
-            // if (active)
-            //{
             message.energia_da_ridurre = calcola_energia_da_ridurre(message.energia_ricevuta);
-            //}
-            // else
-            //{
-            //    message.energia_da_ridurre = 0;
-            //    printGreenDebug(debug,"Inibitore: Inattivo. Nessuna energia ridotta.\n");
-            //}
 
             // Invia la risposta all'atomo
-            message.msg_type = message.atom_pid; // Tipo di messaggio per la risposta
+            message.msg_type = message.atom_pid; // Risposta al PID del processo chiamante
             if (msgsnd(msgid, &message, sizeof(message) - sizeof(long), 0) == -1)
             {
                 perror("Errore nella scrittura nella coda di messaggi");
@@ -173,6 +178,20 @@ void inibitore_main_loop(int msgid)
             else
             {
                 printGreenDebug(debug, "Inibitore: Risposta inviata. Energia ridotta=%d\n", message.energia_da_ridurre);
+            }
+        }
+
+        // Gestisce messaggi di tipo 3 (richiesta di stato)
+        if (msgrcv(msgid, &message, sizeof(message) - sizeof(long), 3, IPC_NOWAIT) > 0)
+        {
+            int toReturn = getRandomReturnValue(); // L'inibitore ha il 10% di probabilità di ritornare un valore di inattività (0)
+            printGreenDebug(debug, "INIBITORE: Ritornando stato %d\n", toReturn);
+            message.msg_type = message.atom_pid; // Risposta al PID del processo chiamante
+            message.energia_da_ridurre = toReturn;
+
+            if (msgsnd(msgid, &message, sizeof(message) - sizeof(long), 0) == -1)
+            {
+                perror("Errore nella scrittura nella coda di messaggi");
             }
         }
     }
@@ -229,6 +248,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    srand(time(NULL));
     setup_signal_handlers();
 
     const char *shm_name = argv[1];

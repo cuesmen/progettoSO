@@ -18,18 +18,18 @@
 #define SEM_KEY 1234        // Chiave del semaforo
 
 SharedMemory shared_memory;
-int sem_id = -1;                                // ID del semaforo
-GtkWidget *label_memory = NULL;                 // Label GTK per memoria
-GtkWidget *label_processes = NULL;              // Label GTK per conteggi processi
-GtkWidget *status_label = NULL;                 // Label GTK per il messaggio di stato
-GtkWidget *button = NULL;                       // Button GTK
-GtkWidget *title_label = NULL;                  // Label GTK per il titolo
-GtkWidget *label_config = NULL;                 // Label GTK per la configurazione
-GtkWidget *separator = NULL;                    // Separator GTK
-GtkWidget *signal_button_inibitore_on = NULL;   // Button GTK per il segnale 1
-GtkWidget *signal_button_inibitore_off = NULL;  // Button GTK per il segnale 2
-bool running = false;                           // Flag per eseguire l'aggiornamento periodico
-bool ipc_resources_available = false;           // Flag per indicare la disponibilità delle risorse IPC
+int sem_id = -1;                               // ID del semaforo
+GtkWidget *label_memory = NULL;                // Label GTK per memoria
+GtkWidget *label_processes = NULL;             // Label GTK per conteggi processi
+GtkWidget *status_label = NULL;                // Label GTK per il messaggio di stato
+GtkWidget *button = NULL;                      // Button GTK
+GtkWidget *title_label = NULL;                 // Label GTK per il titolo
+GtkWidget *label_config = NULL;                // Label GTK per la configurazione
+GtkWidget *separator = NULL;                   // Separator GTK
+GtkWidget *signal_button_inibitore_on = NULL;  // Button GTK per il segnale 1
+GtkWidget *signal_button_inibitore_off = NULL; // Button GTK per il segnale 2
+bool running = false;                          // Flag per eseguire l'aggiornamento periodico
+bool ipc_resources_available = false;          // Flag per indicare la disponibilità delle risorse IPC
 
 // Variabili per mantenere l'ultimo stato valido
 int last_total_atoms = 0;
@@ -44,6 +44,7 @@ int last_alimentazione_count = 0;
 int last_inibitore_count = 0;
 int last_total_inibitore_energy = 0;
 int last_inibitore_attivo = 0;
+int last_inibitore_wastes = 0;
 Config last_config;
 
 void cleanup()
@@ -77,8 +78,9 @@ void init_shared_memory()
     shared_memory.total_wastes = (int *)((char *)shared_area + sizeof(Config) + 4 * sizeof(int));
     shared_memory.total_attivatore = (int *)((char *)shared_area + sizeof(Config) + 5 * sizeof(int));
     shared_memory.total_splits = (int *)((char *)shared_area + sizeof(Config) + 6 * sizeof(int));
-    shared_memory.total_inibitore_energy = (int *)((char *)shared_area + sizeof(Config) + 7 * sizeof(int));  
-    shared_memory.inibitore_attivo = (int *)((char *)shared_area + sizeof(Config) + 8 * sizeof(int));      
+    shared_memory.total_inibitore_energy = (int *)((char *)shared_area + sizeof(Config) + 7 * sizeof(int));
+    shared_memory.inibitore_attivo = (int *)((char *)shared_area + sizeof(Config) + 8 * sizeof(int));
+    shared_memory.total_wastes_by_inibitore = (int *)((char *)shared_area + sizeof(Config) + 9 * sizeof(int));
 
     // Leggi i dati della configurazione una sola volta
     last_config = *(shared_memory.shared_config);
@@ -106,7 +108,7 @@ int count_processes(const char *process_name)
 {
     char command[256];
     snprintf(command, sizeof(command), "pgrep -c %s", process_name);
-    //snprintf(command, sizeof(command), "ps -eo stat,comm | grep '^R.* %s$\\|^S.* %s$\\|^I.* %s$' | wc -l", process_name, process_name, process_name);
+    // snprintf(command, sizeof(command), "ps -eo stat,comm | grep '^R.* %s$\\|^S.* %s$\\|^I.* %s$' | wc -l", process_name, process_name, process_name);
     FILE *fp = popen(command, "r");
     if (fp == NULL)
     {
@@ -123,7 +125,6 @@ int count_processes(const char *process_name)
     pclose(fp);
     return count;
 }
-
 
 void update_labels()
 {
@@ -154,7 +155,7 @@ void update_labels()
         // Mostra gli ultimi valori validi in caso di errore
         char buffer_memory[256];
         snprintf(buffer_memory, sizeof(buffer_memory),
-                 "Energia liberata: %d\nAtomi totali: %d\nAttivazioni: %d\nScissioni: %d\nScorie: %d\nEnergia inibitore: %d\nInibitore attivo: %d", // Modificato
+                 "Energia liberata: %d\nAtomi totali: %d\nAttivazioni: %d\nScissioni: %d\nScorie: %d\nEnergia inibitore: %d\nInibitore attivo: %d",                    // Modificato
                  last_free_energy, last_total_atoms, last_total_attivatore, last_total_splits, last_total_wastes, last_total_inibitore_energy, last_inibitore_attivo); // Modificato
 
         gtk_label_set_text(GTK_LABEL(label_memory), buffer_memory);
@@ -182,16 +183,17 @@ void update_labels()
     last_total_splits = *(shared_memory.total_splits);
     last_total_wastes = *(shared_memory.total_wastes);
     last_free_energy = *(shared_memory.shared_free_energy);
-    last_total_inibitore_energy = *(shared_memory.total_inibitore_energy); // Aggiunto
-    last_inibitore_attivo = *(shared_memory.inibitore_attivo);             // Aggiunto
+    last_total_inibitore_energy = *(shared_memory.total_inibitore_energy);
+    last_inibitore_attivo = *(shared_memory.inibitore_attivo);
+    last_inibitore_wastes = *(shared_memory.total_wastes_by_inibitore);
 
     semaphore_v(sem_id); // Rilascia il semaforo
 
     // Aggiorna le etichette con i dati dalla memoria condivisa
     char buffer_memory[256];
     snprintf(buffer_memory, sizeof(buffer_memory),
-             "Energia liberata: %d\nAtomi totali: %d\nAttivazioni: %d\nScissioni: %d\nScorie: %d\nEnergia inibitore: %d\nInibitore attivo: %d", // Modificato
-             last_free_energy, last_total_atoms, last_total_attivatore, last_total_splits, last_total_wastes, last_total_inibitore_energy, last_inibitore_attivo); // Modificato
+             "Energia liberata: %d\nAtomi totali: %d\nAttivazioni: %d\nScissioni: %d\nScorie: %d\nEnergia inibitore: %d\nInibitore attivo: %d\nScorie inibitore: %d",                     
+             last_free_energy, last_total_atoms, last_total_attivatore, last_total_splits, last_total_wastes, last_total_inibitore_energy, last_inibitore_attivo, last_inibitore_wastes); 
     gtk_label_set_text(GTK_LABEL(label_memory), buffer_memory);
 
     gtk_label_set_text(GTK_LABEL(status_label), ""); // Clear the status message
@@ -247,7 +249,6 @@ pid_t find_master_pid()
     pclose(fp);
     return pid;
 }
-
 
 void on_signal_button_inibitore_on_clicked(GtkWidget *widget, gpointer data)
 {
@@ -306,22 +307,23 @@ int main(int argc, char *argv[])
     separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
 
     const gchar *css_data = "label {\n"
-                             "   font-size: 16px;\n"
-                             "   margin: 5px;\n"
-                             "}\n"
-                             "button {\n"
-                             "   font-size: 16px;\n"
-                             "   padding: 10px;\n"
-                             "}\n"
-                             "grid {\n"
-                             "   padding: 10px;\n"
-                             "}\n";
+                            "   font-size: 16px;\n"
+                            "   margin: 5px;\n"
+                            "}\n"
+                            "button {\n"
+                            "   font-size: 16px;\n"
+                            "   padding: 10px;\n"
+                            "}\n"
+                            "grid {\n"
+                            "   padding: 10px;\n"
+                            "}\n";
     gssize css_length = (gssize)strlen(css_data); // Use gssize for length
 
     GtkCssProvider *css_provider = gtk_css_provider_new();
     gboolean success = gtk_css_provider_load_from_data(css_provider, css_data, css_length, NULL);
 
-    if (!success) {
+    if (!success)
+    {
         g_warning("Failed to load CSS data.");
     }
 
@@ -354,19 +356,19 @@ int main(int argc, char *argv[])
     gtk_widget_set_size_request(signal_button_inibitore_off, 150, 50);
 
     // Organize the grid layout
-    gtk_grid_attach(GTK_GRID(grid), title_label, 0, 0, 2, 1);         // Title spanning both columns
-    gtk_grid_attach(GTK_GRID(grid), label_config, 0, 1, 2, 1);        // Configuration spanning both columns
-    gtk_grid_attach(GTK_GRID(grid), separator, 0, 2, 2, 1);           // Separator spanning both columns
-    gtk_grid_attach(GTK_GRID(grid), label_processes, 0, 3, 1, 1);     // Column 0
-    gtk_grid_attach(GTK_GRID(grid), label_memory, 1, 3, 1, 1);        // Column 1
-    gtk_grid_attach(GTK_GRID(grid), button, 0, 4, 2, 1);              // Row 4, Columns 0 and 1
+    gtk_grid_attach(GTK_GRID(grid), title_label, 0, 0, 2, 1);                 // Title spanning both columns
+    gtk_grid_attach(GTK_GRID(grid), label_config, 0, 1, 2, 1);                // Configuration spanning both columns
+    gtk_grid_attach(GTK_GRID(grid), separator, 0, 2, 2, 1);                   // Separator spanning both columns
+    gtk_grid_attach(GTK_GRID(grid), label_processes, 0, 3, 1, 1);             // Column 0
+    gtk_grid_attach(GTK_GRID(grid), label_memory, 1, 3, 1, 1);                // Column 1
+    gtk_grid_attach(GTK_GRID(grid), button, 0, 4, 2, 1);                      // Row 4, Columns 0 and 1
     gtk_grid_attach(GTK_GRID(grid), signal_button_inibitore_on, 0, 5, 1, 1);  // Signal Button Inibitore ON
     gtk_grid_attach(GTK_GRID(grid), signal_button_inibitore_off, 1, 5, 1, 1); // Signal Button Inibitore OFF
-    gtk_grid_attach(GTK_GRID(grid), status_label, 0, 6, 2, 1);        // Status label at the bottom
+    gtk_grid_attach(GTK_GRID(grid), status_label, 0, 6, 2, 1);                // Status label at the bottom
 
     gtk_widget_set_halign(title_label, GTK_ALIGN_CENTER); // Center the title
-    gtk_widget_set_halign(label_config, GTK_ALIGN_FILL);   // Expand to fill width
-    gtk_widget_set_halign(separator, GTK_ALIGN_FILL);      // Expand to fill width
+    gtk_widget_set_halign(label_config, GTK_ALIGN_FILL);  // Expand to fill width
+    gtk_widget_set_halign(separator, GTK_ALIGN_FILL);     // Expand to fill width
 
     g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
     g_signal_connect(button, "clicked", G_CALLBACK(on_button_clicked), NULL);
