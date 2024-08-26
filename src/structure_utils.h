@@ -1,7 +1,8 @@
 #ifndef STRUCTURE_UTILS_H
 #define STRUCTURE_UTILS_H
 
-#define MEMSIZE 7
+#define MEMSIZE 9
+#define MSG_KEY 1234 
 
 // Struttura che contiene i parametri di configurazione
 typedef struct {
@@ -15,6 +16,8 @@ typedef struct {
     int sim_duration;
     int energy_explode_threshold;
     int energy_demand;
+    int start_with_inibitore;
+    int hard_kill_atoms;
 } Config;
 
 
@@ -28,6 +31,8 @@ typedef struct {
     int *total_wastes;
     int *total_attivatore;
     int *total_splits;
+    int *total_inibitore_energy;
+    int *inibitore_attivo; 
 } SharedMemory;
 
 
@@ -36,6 +41,13 @@ struct msg_buffer {
     long msg_type;
     char msg_text[100];
 };
+
+struct atomo_msg_buffer  {
+    long msg_type;
+    int energia_ricevuta;
+    int energia_da_ridurre;
+};
+
 
 
 #endif 

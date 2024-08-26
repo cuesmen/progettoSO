@@ -31,6 +31,7 @@ typedef enum {
 // Funzioni per segnali
 void handle_sigusr1(int sig);
 
+
 // Funzioni IPC
 int create_semaphore(key_t sem_key);
 int create_and_open_shared_memory(const char *shm_name, int *shm_fd);
@@ -42,6 +43,7 @@ int execute_Configchild_process();
 int create_and_execute_atomo(int num);
 int create_and_execute_attivatore();
 int create_and_execute_alimentazione(long step, int max_atoms);
+int create_and_execute_inibitore();
 void wait_for_Configchild_process(pid_t pid);
 
 // Funzioni di inizializzazione

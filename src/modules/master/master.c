@@ -3,6 +3,8 @@
 // Variabili globali
 pid_t alimentazione_pid;
 pid_t attivatore_pid;
+pid_t gui_pid;
+pid_t inibitore_pid;
 struct rlimit limit;
 int energy_demand;
 int total_energy_demanded = 0;
@@ -12,7 +14,26 @@ int shm_fd = -1;
 int sem_id = -1;
 int msgid = -1;
 const char *shm_name = "/wConfig";
-SharedMemory shared_memory = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+SharedMemory shared_memory = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+
+int createdInibitore = 0;
+
+void handle_gui_signals(int sig)
+{
+    if (sig == SIGRTMIN) //Attiva/Riattiva
+    {
+        if(createdInibitore == 1)
+            kill(inibitore_pid, SIGUSR1);
+        else
+            create_and_execute_inibitore();
+    }
+    else if (sig == SIGRTMIN + 1) //Spegni
+    {
+        if(createdInibitore == 1)
+            kill(inibitore_pid, SIGUSR2);
+    }
+
+}
 
 void handle_sigusr1(int sig)
 {
@@ -20,9 +41,13 @@ void handle_sigusr1(int sig)
     {
         kill(alimentazione_pid, SIGTERM);
         kill(attivatore_pid, SIGTERM);
+        semaphore_p(sem_id);
+        if (createdInibitore == 1)
+            kill(inibitore_pid, SIGTERM);
+        semaphore_v(sem_id);
         ExitCode exit_code = MELTDOWN;
         printRed("\nProgram exited with code: %d, meaning %s\n\n", exit_code, get_exit_code_description(exit_code));
-        cleanup();  // Richiama cleanup senza argomenti
+        cleanup(); // Richiama cleanup senza argomenti
         exit(1);
     }
 }
@@ -34,7 +59,11 @@ void handle_sigint(int sig)
         printf("\nCTRL+C received, cleaning up and exiting...\n");
         kill(alimentazione_pid, SIGTERM);
         kill(attivatore_pid, SIGTERM);
-        cleanup(); 
+        semaphore_p(sem_id);
+        if (createdInibitore == 1)
+            kill(inibitore_pid, SIGTERM);
+        semaphore_v(sem_id);
+        cleanup();
         exit(0);
     }
 }
@@ -61,6 +90,7 @@ void cleanup()
     {
         semctl(sem_id, 0, IPC_RMID);
     }
+    unlink("inibitore_pipe");
 }
 
 void handle_error(const char *msg)
@@ -133,6 +163,8 @@ SharedMemory map_shared_memory(int shm_fd)
     shared_memory.total_wastes = (int *)((char *)shared_area + sizeof(Config) + sizeof(int) * 4);
     shared_memory.total_attivatore = (int *)((char *)shared_area + sizeof(Config) + sizeof(int) * 5);
     shared_memory.total_splits = (int *)((char *)shared_area + sizeof(Config) + sizeof(int) * 6);
+    shared_memory.total_inibitore_energy = (int *)((char *)shared_area + sizeof(Config) + sizeof(int) * 7);
+    shared_memory.inibitore_attivo = (int *)((char *)shared_area + sizeof(Config) + sizeof(int) * 8);
 
     memset(shared_memory.shared_config, 0, sizeof(Config));
     *(shared_memory.shared_free_energy) = 0;
@@ -142,6 +174,8 @@ SharedMemory map_shared_memory(int shm_fd)
     *(shared_memory.total_wastes) = 0;
     *(shared_memory.total_attivatore) = 0;
     *(shared_memory.total_splits) = 0;
+    *(shared_memory.total_inibitore_energy) = 0;
+    *(shared_memory.inibitore_attivo) = 0;
 
     return shared_memory;
 }
@@ -203,20 +237,19 @@ int create_and_execute_atomo(int num)
 
         // Esecuzione del nuovo processo
         execve("./atomo", (char *const *)argv, NULL);
-        //perror("execveAtomo");
+        // perror("execveAtomo");
         return 1;
     }
     else if (atomo_pid > 0)
     {
-        return 0;  // Il processo figlio è stato creato con successo
+        return 0; // Il processo figlio è stato creato con successo
     }
     else
     {
         perror("Atomo_fork");
-        return 1;  // Fork fallito, segnala errore al processo padre
+        return 1; // Fork fallito, segnala errore al processo padre
     }
 }
-
 
 int create_and_execute_attivatore()
 {
@@ -279,6 +312,32 @@ int create_and_execute_alimentazione(long step, int max_atoms)
     else
     {
         perror("Alimentazione_fork");
+        return 1;
+    }
+}
+
+int create_and_execute_inibitore()
+{
+    inibitore_pid = fork();
+    if (inibitore_pid == 0)
+    {
+        // Processo figlio: esegue l'inibitore
+        const char *argv[] = {"./inibitore", shm_name, "inibitore_pipe", NULL};
+        execve("./inibitore", (char *const *)argv, NULL);
+
+        // Se execve fallisce
+        perror("execveInibitore");
+        kill(getppid(), SIGUSR1);
+        exit(0);
+    }
+    else if (inibitore_pid > 0)
+    {
+        createdInibitore = 1;
+        return 0;
+    }
+    else
+    {
+        perror("Inibitore_fork");
         return 1;
     }
 }
@@ -351,11 +410,18 @@ ExitCode master_main_loop()
         int current_atoms = *(shared_memory.total_atoms_counter);
         int current_energy = *(shared_memory.shared_free_energy);
         total_current_energy = current_energy;
-        *(shared_memory.shared_free_energy) -= energy_demand;
+
+        if(counter > 1)
+            *(shared_memory.shared_free_energy) -= energy_demand;
+
         current_energy = *(shared_memory.shared_free_energy);
         int current_wastes = *(shared_memory.total_wastes);
         int current_attivatore = *(shared_memory.total_attivatore);
         int current_splits = *(shared_memory.total_splits);
+        int total_inibitore = *(shared_memory.total_inibitore_energy);
+
+        int deb = *(shared_memory.inibitore_attivo);
+
         semaphore_v(sem_id);
 
         if (current_atoms > (int)(limit.rlim_cur) / 2)
@@ -388,19 +454,21 @@ ExitCode master_main_loop()
         printf("Numero totale di attivazioni attivatore: %d\n", current_attivatore);
         printf("Numero di scissioni al tempo %d: %d\n", counter, real_current_splits);
         printf("Numero totale di scissioni: %d\n", current_splits);
-        //printf("Energia prima del prelievo: %d\n", total_current_energy);
-        printf("Energia creata al tempo %d: %d\n", counter,created_energy);
+        // printf("Energia prima del prelievo: %d\n", total_current_energy);
+        printf("Energia creata al tempo %d: %d\n", counter, created_energy);
         printf("Energia totale disponibile: %d\n", current_energy);
-        printf("Energia consumata al tempo %d: %d\n",counter, energy_demand);
+        printf("Energia consumata al tempo %d: %d\n", counter, energy_demand);
         printf("Energia totale consumata: %d\n", total_energy_demanded);
         printf("Scorie prodotte al tempo %d: %d\n", counter, real_current_wastes);
         printf("Scorie totali prodotte: %d\n", current_wastes);
+        printf("Energia assorbita da inibitore: %d\n", total_inibitore);
+        printf("Attivo? %d\n", deb);
         fflush(stdout);
 
         previous_splits = current_splits;
         previous_attivatore = current_attivatore;
         previous_wastes = current_wastes;
-        previous_energy = current_energy; 
+        previous_energy = current_energy;
         counter += 1;
         sleep(1);
     }
@@ -434,8 +502,10 @@ void set_termination_flag()
 int main()
 {
 
+    signal(SIGRTMIN, handle_gui_signals);
+    signal(SIGRTMIN + 1, handle_gui_signals);
     signal(SIGUSR1, handle_sigusr1);
-    signal(SIGINT, handle_sigint); 
+    signal(SIGINT, handle_sigint);
 
     if (getrlimit(RLIMIT_NPROC, &limit) == 0)
     {
@@ -469,6 +539,15 @@ int main()
         handle_error("create_and_execute_alimentazione");
     }
 
+    if (shared_memory.shared_config->start_with_inibitore == 1)
+    {
+        printBlue("Activating inibitore...\n");
+        if (create_and_execute_inibitore() != 0)
+        {
+            handle_error("create_and_execute_inibitore");
+        }
+    }
+
     printBlue("Getting energy demand...\n");
     energy_demand = shared_memory.shared_config->energy_demand;
 
@@ -496,6 +575,11 @@ int main()
     kill(alimentazione_pid, SIGTERM);
     kill(attivatore_pid, SIGTERM);
 
+    semaphore_p(sem_id);
+    if (createdInibitore == 1)
+        kill(inibitore_pid, SIGTERM);
+    semaphore_v(sem_id);
+
     set_termination_flag();
 
     printGreen("\nTOTALE ATOMI CREATI: %d\n", *(int *)shared_memory.total_atoms);
@@ -503,10 +587,18 @@ int main()
     printGreen("TOTALE SCISSIONI AVVENUTE: %d\n", *(int *)shared_memory.total_splits);
     printGreen("TOTALE ENERGIA PRELEVATA: %d\n", total_energy_demanded);
     printGreen("TOTALE ENERGIA LIBERATA: %d\n", *(int *)shared_memory.shared_free_energy);
-    printGreen("TOTALE SCORIE CREATE: %d\n\n", *(int *)shared_memory.total_wastes);
+    printGreen("TOTALE SCORIE CREATE: %d\n", *(int *)shared_memory.total_wastes);
+    printGreen("TOTALE ENERGIA PRESA DA INIBITORE: %d\n\n", *(int *)shared_memory.total_inibitore_energy);
+
+    //HARD KILLING ATOMS//
+    if((shared_memory.shared_config->hard_kill_atoms) == 1){
+        printBlue("Hard killing atoms...\n");
+        system("pkill atomo");
+    }   
 
     while (wait(NULL) > 0)
-        ;
+    ;
+
     printGreen("\nProgram exited with code: %d, meaning %s\n\n", exit_code, get_exit_code_description(exit_code));
 
     printYellow("Cleaning up all processes...\n");

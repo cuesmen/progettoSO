@@ -50,6 +50,12 @@ static int handler(void* user, const char* section, const char* name, const char
         if (strcmp(name, "ENERGY_DEMAND") == 0) {
             pconfig->energy_demand = atoi(value);
         }
+        if (strcmp(name, "start_with_inibitore") == 0) {
+            pconfig->start_with_inibitore = atoi(value);
+        }
+         if (strcmp(name, "hard_kill_atoms") == 0) {
+            pconfig->hard_kill_atoms = atoi(value);
+        }
     }
 
     return 1;  
@@ -75,7 +81,9 @@ void printConfig() {
     printf("Step alimentazione: %ld\n", globalConfig->step_alimentazione);
     printf("Sim duration: %d\n", globalConfig->sim_duration);
     printf("Energy explode threshold: %d\n", globalConfig->energy_explode_threshold);
-    printf("Energy demand: %d\n\n", globalConfig->energy_demand);
+    printf("Energy demand: %d\n", globalConfig->energy_demand);
+    printf("Start with inibitore: %d\n", globalConfig->start_with_inibitore);
+    printf("Hard kill atoms: %d\n\n", globalConfig->hard_kill_atoms);
     fflush(stdout);
 }
 

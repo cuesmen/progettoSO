@@ -24,7 +24,6 @@
 #include "../../structure_utils.h"
 #include "../../semaphore_utils.h"
 #include "../../log_utils.h"
-
 // Funzioni IPC
 int get_semaphore_id(const char *shm_name);
 int map_atomo_shared_memory(const char *shm_name, SharedMemory **shared_memory);
