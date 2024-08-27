@@ -6,6 +6,9 @@ static SharedMemory *shared_memory = NULL;
 int sem_id;
 int msgid;
 
+// Questa funzione gestisce i segnali che possono essere inviati al processo.
+// SIGUSR1 e SIGUSR2 attivano o disattivano l'inibitore, mentre SIGTERM e SIGINT
+// servono per una terminazione sicura, liberando risorse come memoria condivisa e coda di messaggi.
 void handle_signal(int sig)
 {
     if (sig == SIGUSR1)
@@ -28,10 +31,7 @@ void handle_signal(int sig)
     {
         printGreenDebug(debug, "Inibitore: Terminazione in corso (SIGTERM o SIGINT ricevuto).\n");
 
-        // semaphore_p(sem_id);
-        //*(shared_memory->inibitore_attivo) = 0;
-        // semaphore_v(sem_id);
-
+        // Rilascio delle risorse: qui viene liberata la memoria condivisa e rimossa la coda di messaggi.
         munmap(shared_memory->shared_config, sizeof(Config) + MEMSIZE * sizeof(int));
         free(shared_memory);
 
@@ -48,6 +48,7 @@ void handle_signal(int sig)
     }
 }
 
+// Configura i gestori per i vari segnali che il processo potrebbe ricevere.
 void setup_signal_handlers()
 {
     struct sigaction sa;
@@ -62,6 +63,7 @@ void setup_signal_handlers()
     printGreenDebug(debug, "Inibitore: Gestori di segnali configurati.\n");
 }
 
+// Ottiene l'ID del semaforo associato alla memoria condivisa.
 int get_semaphore_id(const char *shm_name)
 {
     key_t sem_key = ftok(shm_name, 'S');
@@ -74,6 +76,8 @@ int get_semaphore_id(const char *shm_name)
     return sem_id;
 }
 
+// Mappa la memoria condivisa necessaria all'inibitore e configura i puntatori 
+// alla struttura SharedMemory che conterrà i vari parametri condivisi.
 int map_inibitore_shared_memory(const char *shm_name, SharedMemory **shared_memory_ptr)
 {
     int shm_fd;
@@ -120,6 +124,8 @@ int map_inibitore_shared_memory(const char *shm_name, SharedMemory **shared_memo
     close(shm_fd);
     return 0;
 }
+
+// Inizializza la memoria condivisa e il semaforo necessari per il funzionamento dell'inibitore.
 void init_shared_memory_and_semaphore(const char *shm_name, int *sem_id)
 {
     if (map_inibitore_shared_memory(shm_name, &shared_memory) != 0)
@@ -138,6 +144,8 @@ void init_shared_memory_and_semaphore(const char *shm_name, int *sem_id)
     printGreenDebug(debug, "Inibitore: Memoria condivisa e semaforo inizializzati correttamente.\n");
 }
 
+// Funzione che restituisce un valore casuale, utilizzata per determinare
+// se l'inibitore sarà attivo o meno in un determinato momento.
 int getRandomReturnValue()
 {
     int random_value = rand() % 10; // Genera un numero da 0 a 9
@@ -146,11 +154,13 @@ int getRandomReturnValue()
         return 0;
     }
     else
-    { // 1, 2, 3, 4, 5, 6, 7, 8, 9 (80% di probabilità)
+    { // 1, 2, 3, 4, 5, 6, 7, 8, 9 (90% di probabilità)
         return 1;
     }
 }
 
+// Funzione principale del loop dell'inibitore. Gestisce i messaggi di tipo 1 e 3,
+// che richiedono rispettivamente la riduzione dell'energia e lo stato dell'inibitore.
 void inibitore_main_loop(int msgid)
 {
     printGreenDebug(debug, "Inibitore: Avvio del loop principale.\n");
@@ -197,16 +207,7 @@ void inibitore_main_loop(int msgid)
     }
 }
 
-/*
- *
- * Questo metodo riduce l'energia ricevuta in base alla situazione attuale
- * del sistema, considerando l'energia attualmente disponibile e la soglia
- * di esplosione dell'energia. Se l'energia potenziale (energia attuale +
- * energia ricevuta) supera la soglia critica, l'energia da ridurre viene
- * adattata per evitare di raggiungere o superare la soglia, prevenendo così
- * un blackout. In caso contrario, viene applicata una riduzione fissa del 20%.
- *
- */
+// Calcola l'energia da ridurre in base alla situazione attuale del sistema.
 int calcola_energia_da_ridurre(int energia_ricevuta)
 {
     semaphore_p(sem_id);
@@ -240,6 +241,7 @@ int calcola_energia_da_ridurre(int energia_ricevuta)
     }
 }
 
+// Funzione principale del processo inibitore.
 int main(int argc, char *argv[])
 {
     if (argc < 2)

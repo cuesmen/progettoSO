@@ -1,13 +1,15 @@
 #include "attivatore.h"
 
 static SharedMemory *shared_memory = NULL;
-volatile sig_atomic_t stop = 0;  
+volatile sig_atomic_t stop = 0;  // Flag per fermare l'attivatore in modo sicuro
 
+// Gestore del segnale SIGTERM per impostare il flag di stop
 void handle_signal(int)
 {
     stop = 1;  
 }
 
+// Funzione per ottenere l'ID del semaforo associato alla memoria condivisa
 int get_semaphore_id(const char *shm_name) {
     key_t sem_key = ftok(shm_name, 'S');
     int sem_id = semget(sem_key, 1, 0666);
@@ -18,6 +20,7 @@ int get_semaphore_id(const char *shm_name) {
     return sem_id;
 }
 
+// Mappa la memoria condivisa nel processo dell'attivatore
 int map_attivatore_shared_memory(const char *shm_name, SharedMemory **shared_memory_ptr) {
     int shm_fd = shm_open(shm_name, O_RDWR, 0666);
     if (shm_fd == -1) {
@@ -52,6 +55,7 @@ int map_attivatore_shared_memory(const char *shm_name, SharedMemory **shared_mem
     return 0;
 }
 
+// Invia un messaggio agli atomi per eseguire un'azione (es. "split" o "terminate")
 int send_message_to_atoms(int msgid, long msg_type, const char *msg_text) {
     struct msg_buffer message;
     message.msg_type = msg_type;
@@ -69,12 +73,12 @@ int send_message_to_atoms(int msgid, long msg_type, const char *msg_text) {
                 return -1;
             }
         }
-        
         break;
     }
     return 0;
 }
 
+// Pulisce le risorse IPC (memoria condivisa e semafori)
 void cleanup_ipc_resources(SharedMemory *shared_memory) {
     if (shared_memory != NULL) {
         munmap(shared_memory->shared_config, sizeof(Config) + MEMSIZE * sizeof(int));
@@ -82,12 +86,14 @@ void cleanup_ipc_resources(SharedMemory *shared_memory) {
     }
 }
 
+// Gestisce gli errori, pulendo le risorse IPC e terminando il programma
 void handle_Attivatoreerror(const char *msg, SharedMemory *shared_memory) {
     perror(msg);
     cleanup_ipc_resources(shared_memory);
     exit(EXIT_FAILURE);
 }
 
+// Inizializza la memoria condivisa e il semaforo dell'attivatore
 void init_shared_memory_and_semaphore(const char *shm_name, int *sem_id) {
     if (map_attivatore_shared_memory(shm_name, &shared_memory) != 0) {
         handle_Attivatoreerror("Errore nella mappatura della memoria condivisa", shared_memory);
@@ -99,6 +105,7 @@ void init_shared_memory_and_semaphore(const char *shm_name, int *sem_id) {
     }
 }
 
+// Inizializza l'attivatore controllando i parametri di configurazione
 void init_attivatore(int sem_id) {
     semaphore_p(sem_id);
     int step_attivatore = shared_memory->shared_config->step_attivatore;
@@ -110,14 +117,11 @@ void init_attivatore(int sem_id) {
         exit(EXIT_FAILURE);
     }
 
-    //printf("Attivatore avviato con shared_memory_name: %s\n", shm_name);
-    //printf("Valore di step_attivatore: %d\n", step_attivatore);
     sleep(1);
 }
 
-
+// Termina tutti gli atomi inviando loro un messaggio "terminate"
 void terminate_all_atoms(int msgid, int current_atoms, SharedMemory *shared_memory) {
-
     for (int i = 0; i < current_atoms; i++) {
         if (send_message_to_atoms(msgid, 1, "terminate") != 0) {
             handle_Attivatoreerror("Errore nell'invio del messaggio terminate agli atomi", shared_memory);
@@ -134,11 +138,9 @@ void terminate_all_atoms(int msgid, int current_atoms, SharedMemory *shared_memo
     } else {
         printf("Coda di messaggi svuotata con successo.\n");
     }
-
 }
 
-
-
+// Ciclo principale dell'attivatore, invia messaggi agli atomi per eseguire operazioni o terminare
 void attivatore_main_loop(int sem_id, int msgid, int step_attivatore) {
     while (1) {
         sleep(step_attivatore);
@@ -154,15 +156,13 @@ void attivatore_main_loop(int sem_id, int msgid, int step_attivatore) {
             break;
         }
 
-
         if(toEnd == 1){
-            terminate_all_atoms(msgid,current_atoms,shared_memory);
+            terminate_all_atoms(msgid, current_atoms, shared_memory);
             break;
         }
 
-
         if(stop){
-            terminate_all_atoms(msgid,current_atoms,shared_memory);
+            terminate_all_atoms(msgid, current_atoms, shared_memory);
             break;
         }
 
@@ -187,6 +187,7 @@ void attivatore_main_loop(int sem_id, int msgid, int step_attivatore) {
     }
 }
 
+// Funzione principale che avvia l'attivatore
 int main(int argc, char *argv[]) {
     if (argc < 3) {
         fprintf(stderr, "Usage: %s <shared_memory_name> <msgid>\n", argv[0]);
@@ -205,7 +206,6 @@ int main(int argc, char *argv[]) {
     int step_attivatore = shared_memory->shared_config->step_attivatore;
     attivatore_main_loop(sem_id, msgid, step_attivatore);
 
-    //printf("\n\nTutti gli atomi sono terminati. Attivatore si sta spegnendo...\n\n");
     cleanup_ipc_resources(shared_memory);
 
     return 0;

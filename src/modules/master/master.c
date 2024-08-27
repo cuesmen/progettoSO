@@ -18,23 +18,24 @@ SharedMemory shared_memory = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NU
 
 int createdInibitore = 0;
 
+// Gestisce i segnali inviati dall'interfaccia GUI per attivare, riattivare o spegnere l'inibitore
 void handle_gui_signals(int sig)
 {
-    if (sig == SIGRTMIN) //Attiva/Riattiva
+    if (sig == SIGRTMIN) // Attiva/Riattiva
     {
-        if(createdInibitore == 1)
+        if (createdInibitore == 1)
             kill(inibitore_pid, SIGUSR1);
         else
             create_and_execute_inibitore();
     }
-    else if (sig == SIGRTMIN + 1) //Spegni
+    else if (sig == SIGRTMIN + 1) // Spegni
     {
-        if(createdInibitore == 1)
+        if (createdInibitore == 1)
             kill(inibitore_pid, SIGUSR2);
     }
-
 }
 
+// Gestisce il segnale SIGUSR1, tipicamente inviato quando si verifica una condizione critica che richiede l'arresto del sistema
 void handle_sigusr1(int sig)
 {
     if (sig == SIGUSR1)
@@ -52,6 +53,7 @@ void handle_sigusr1(int sig)
     }
 }
 
+// Gestisce il segnale SIGINT (Ctrl+C), eseguendo la pulizia necessaria prima di terminare il programma
 void handle_sigint(int sig)
 {
     if (sig == SIGINT)
@@ -68,6 +70,7 @@ void handle_sigint(int sig)
     }
 }
 
+// Funzione di pulizia che rilascia tutte le risorse allocate, incluse memoria condivisa, semafori e code di messaggi
 void cleanup()
 {
     if (shared_memory.shared_config != NULL)
@@ -93,6 +96,7 @@ void cleanup()
     unlink("inibitore_pipe");
 }
 
+// Gestisce errori critici, eseguendo la pulizia e terminando il programma
 void handle_error(const char *msg)
 {
     perror(msg);
@@ -100,6 +104,7 @@ void handle_error(const char *msg)
     exit(0);
 }
 
+// Crea un semaforo con la chiave fornita
 int create_semaphore(key_t sem_key)
 {
     int sem_id = semget(sem_key, 1, 0666 | IPC_CREAT);
@@ -127,6 +132,7 @@ int create_semaphore(key_t sem_key)
     return sem_id;
 }
 
+// Crea e apre una memoria condivisa con il nome fornito
 int create_and_open_shared_memory(const char *shm_name, int *shm_fd)
 {
     *shm_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0666);
@@ -143,6 +149,7 @@ int create_and_open_shared_memory(const char *shm_name, int *shm_fd)
     return 0;
 }
 
+// Mappa la memoria condivisa nel processo corrente
 SharedMemory map_shared_memory(int shm_fd)
 {
     SharedMemory shared_memory;
@@ -182,6 +189,7 @@ SharedMemory map_shared_memory(int shm_fd)
     return shared_memory;
 }
 
+// Crea una coda di messaggi per la comunicazione inter-processo
 int create_message_queue(const char *shm_name)
 {
     key_t key = ftok(shm_name, 'B');
@@ -194,6 +202,7 @@ int create_message_queue(const char *shm_name)
     return msgid;
 }
 
+// Aspetta la terminazione del processo figlio Config, assicurandosi che termini correttamente
 void wait_for_Configchild_process(pid_t pid)
 {
     int status;
@@ -206,6 +215,7 @@ void wait_for_Configchild_process(pid_t pid)
     fflush(stdout);
 }
 
+// Inizializza il processo Config
 void init_config_process()
 {
     // printf("Forking config process...\n");
@@ -224,6 +234,7 @@ void init_config_process()
     }
 }
 
+// Crea ed esegue un processo atomo, utilizzato per simulare una particella
 int create_and_execute_atomo(int num)
 {
     pid_t atomo_pid = fork();
@@ -253,6 +264,7 @@ int create_and_execute_atomo(int num)
     }
 }
 
+// Crea ed esegue il processo attivatore
 int create_and_execute_attivatore()
 {
     attivatore_pid = fork();
@@ -283,6 +295,7 @@ int create_and_execute_attivatore()
     }
 }
 
+// Crea ed esegue il processo alimentazione
 int create_and_execute_alimentazione(long step, int max_atoms)
 {
     alimentazione_pid = fork();
@@ -318,6 +331,7 @@ int create_and_execute_alimentazione(long step, int max_atoms)
     }
 }
 
+// Crea ed esegue il processo inibitore
 int create_and_execute_inibitore()
 {
     inibitore_pid = fork();
@@ -344,6 +358,7 @@ int create_and_execute_inibitore()
     }
 }
 
+// Esegue il processo Config figlio
 int execute_Configchild_process()
 {
     // Creazione dell'array di argomenti con const char *
@@ -358,6 +373,7 @@ int execute_Configchild_process()
     exit(0);
 }
 
+// Inizializza la memoria condivisa e il semaforo del master
 void init_master_shared_memory_and_semaphore()
 {
     // printf("Creating and opening shared memory...\n");
@@ -382,6 +398,7 @@ void init_master_shared_memory_and_semaphore()
     }
 }
 
+// Inizializza la coda di messaggi
 void init_message_queue()
 {
     // printf("Creating message queue...\n");
@@ -392,6 +409,7 @@ void init_message_queue()
     }
 }
 
+// Ciclo principale del master che monitora lo stato dell'intero sistema
 ExitCode master_main_loop()
 {
     sleep(2);
@@ -413,10 +431,16 @@ ExitCode master_main_loop()
         int current_energy = *(shared_memory.shared_free_energy);
         total_current_energy = current_energy;
 
-        if(counter > 1)
+        if (counter > 1)
+        {
             *(shared_memory.shared_free_energy) -= energy_demand;
-
-        current_energy = *(shared_memory.shared_free_energy);
+            current_energy = *(shared_memory.shared_free_energy);
+            if (current_energy <= 0)
+            {
+                semaphore_v(sem_id);
+                return BLACKOUT;
+            }
+        }
         int current_wastes = *(shared_memory.total_wastes);
         int current_attivatore = *(shared_memory.total_attivatore);
         int current_splits = *(shared_memory.total_splits);
@@ -435,14 +459,6 @@ ExitCode master_main_loop()
         if (current_energy > shared_memory.shared_config->energy_explode_threshold)
         {
             return EXPLODE;
-        }
-
-        total_energy_demanded += energy_demand;
-        if (total_energy_demanded > current_energy)
-        {
-            printRed("Quantità totale prelevata è: %d\n", total_energy_demanded);
-            printRed("Quantità corrente di energia è: %d", current_energy);
-            return BLACKOUT;
         }
 
         int created_energy = current_energy - previous_energy;
@@ -479,6 +495,7 @@ ExitCode master_main_loop()
     return PROGRAM_ERROR;
 }
 
+// Restituisce la descrizione del codice di uscita
 const char *get_exit_code_description(ExitCode code)
 {
     switch (code)
@@ -498,11 +515,13 @@ const char *get_exit_code_description(ExitCode code)
     }
 }
 
+// Imposta il flag di terminazione nel sistema
 void set_termination_flag()
 {
     *(shared_memory.toEnd) = 1;
 }
 
+// Funzione principale del processo master
 int main()
 {
 
@@ -594,14 +613,15 @@ int main()
     printGreen("TOTALE SCORIE CREATE: %d\n", *(int *)shared_memory.total_wastes);
     printGreen("TOTALE ENERGIA PRESA DA INIBITORE: %d\n\n", *(int *)shared_memory.total_inibitore_energy);
 
-    //HARD KILLING ATOMS//
-    if((shared_memory.shared_config->hard_kill_atoms) == 1){
+    // HARD KILLING ATOMS//
+    if ((shared_memory.shared_config->hard_kill_atoms) == 1)
+    {
         printBlue("Hard killing atoms...\n");
         system("pkill atomo");
-    }   
+    }
 
     while (wait(NULL) > 0)
-    ;
+        ;
 
     printGreen("\nProgram exited with code: %d, meaning %s\n\n", exit_code, get_exit_code_description(exit_code));
 

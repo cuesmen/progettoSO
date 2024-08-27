@@ -37,12 +37,14 @@ typedef struct {
 } SharedMemory;
 
 
-// Struttura per la coda di messaggi
+// Struttura per la coda di messaggi fra atomo e attivatore
 struct msg_buffer {
     long msg_type;
     char msg_text[100];
 };
 
+
+// Struttura per la coda di messaggi fra atomo e inibitore
 struct atomo_msg_buffer  {
     long msg_type;
     int energia_ricevuta;

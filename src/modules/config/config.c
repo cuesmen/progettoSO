@@ -7,12 +7,14 @@
 
 #include "config.h"
 
-
+// Puntatore alla configurazione globale
 Config *globalConfig;
 
+// Questa funzione gestisce il caricamento della configurazione dalla sezione specificata del file ini
 static int handler(void* user, const char* section, const char* name, const char* value) {
     Config* pconfig = (Config*)user;
 
+    // Sezione relativa agli atomi
     if (strcmp(section, "ATOMI") == 0) {
         if (strcmp(name, "N_ATOMI_INIT") == 0) {
             pconfig->n_atomi_init = atoi(value);
@@ -24,16 +26,22 @@ static int handler(void* user, const char* section, const char* name, const char
             pconfig->min_n_atomico = atoi(value);
         }
     }
+
+    // Sezione relativa all'attivatore
     if (strcmp(section, "ATTIVATORE") == 0) {
         if (strcmp(name, "STEP_ATTIVATORE") == 0) {
             pconfig->step_attivatore = atoi(value);
         }
     }
+
+    // Sezione relativa all'alimentazione
     if (strcmp(section, "ALIMENTAZIONE") == 0) {
         if (strcmp(name, "STEP_ALIMENTAZIONE") == 0) {
             pconfig->step_alimentazione = atoi(value);
         }
     }
+
+    // Sezione generale
     if (strcmp(section, "GENERAL") == 0) {
         if (strcmp(name, "debug") == 0) {
             pconfig->debug = atoi(value);
@@ -61,6 +69,7 @@ static int handler(void* user, const char* section, const char* name, const char
     return 1;  
 }
 
+// Carica la configurazione dal file ini
 int loadConfig() {
     const char *filename = "config.ini";
     if (ini_parse(filename, handler, globalConfig) < 0) {
@@ -71,6 +80,7 @@ int loadConfig() {
     return 0;
 }
 
+// Stampa la configurazione corrente caricata
 void printConfig() {
     printf("Numero di atomi iniziali: %d\n", globalConfig->n_atomi_init);
     printf("Numero atom max: %d\n", globalConfig->n_atom_max);
@@ -87,6 +97,7 @@ void printConfig() {
     fflush(stdout);
 }
 
+// Funzione principale del programma
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "Utilizzo: %s <nome_shm>\n", argv[0]);
@@ -94,6 +105,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    // Nome della memoria condivisa passato come argomento
     const char *shm_name = argv[1];
     int shm_fd = shm_open(shm_name, O_RDWR, 0666);
     if (shm_fd == -1) {
@@ -101,20 +113,21 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Mappa la memoria condivisa
+    // Mappa la memoria condivisa nel processo
     globalConfig = mmap(NULL, sizeof(Config), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
     if (globalConfig == MAP_FAILED) {
         perror("mmap");
         return 1;
     }
 
+    // Carica la configurazione e la stampa
     if (loadConfig() == 0) {
         printConfig();
     } else {
         return 1; // Errore durante il caricamento della configurazione
     }
 
-    // Pulizia
+    // Pulizia delle risorse allocate
     munmap(globalConfig, sizeof(Config));
     close(shm_fd);
 
